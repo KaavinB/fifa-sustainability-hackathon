@@ -18,6 +18,19 @@ import { exactAlias, matchAliases } from './aliases.js';
 
 const LAT_LON = /^\s*(-?\d{1,3}(?:\.\d+)?)\s*[, ]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/;
 
+const GEOCODER_TIMEOUT_MS = 12000;
+
+/**
+ * A geocoder that never answers must not hang the Compare button, and a
+ * type-ahead request still has to stay cancellable when the next keystroke
+ * lands — so combine the caller's signal with a deadline.
+ */
+function withDeadline(signal) {
+  const deadline = AbortSignal.timeout(GEOCODER_TIMEOUT_MS);
+  if (!signal) return deadline;
+  return typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, deadline]) : signal;
+}
+
 /** A coordinate pair typed straight into the box is a valid place. */
 export function parseCoordinates(text) {
   const match = text.match(LAT_LON);
@@ -91,7 +104,13 @@ async function nominatimSearch(text, limit = 1) {
     viewbox: `${TEXAS.w},${TEXAS.n},${TEXAS.e},${TEXAS.s}`,
     bounded: '1',
   });
-  const res = await fetch(`${NOMINATIM_URL}?${params}`);
+  let res;
+  try {
+    res = await fetch(`${NOMINATIM_URL}?${params}`, { signal: withDeadline() });
+  } catch {
+    // Timed out or unreachable: let the caller fall through to its next option.
+    return [];
+  }
   if (!res.ok) return [];
 
   return (await res.json()).map((hit) => {
@@ -186,7 +205,7 @@ export async function suggestPlaces(query, { signal } = {}) {
     : [];
 
   try {
-    const res = await fetch(`${PHOTON_SEARCH_URL}?${params}`, { signal });
+    const res = await fetch(`${PHOTON_SEARCH_URL}?${params}`, { signal: withDeadline(signal) });
     if (!res.ok) throw new Error(`Photon returned ${res.status}`);
     const data = await res.json();
 
@@ -249,7 +268,7 @@ export async function resolvePlace(query) {
 export async function describeCoordinate(coord) {
   const params = new URLSearchParams({ lat: String(coord[0]), lon: String(coord[1]) });
   try {
-    const res = await fetch(`${PHOTON_REVERSE_URL}?${params}`);
+    const res = await fetch(`${PHOTON_REVERSE_URL}?${params}`, { signal: withDeadline() });
     if (!res.ok) throw new Error(`Photon returned ${res.status}`);
     const data = await res.json();
     if (!data.features?.length) throw new Error('No match');

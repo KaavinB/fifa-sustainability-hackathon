@@ -73,6 +73,10 @@ export const MODES = {
     // $0.67/mile ÷ 1.609 — IRS 2024 standard mileage rate, which bundles fuel,
     // maintenance, insurance and depreciation.
     costPerKm: 0.42,
+    // Straight-line ceiling past which the request is refused. The public OSRM
+    // instances are shared, and asking one to route a 300 km walk makes it
+    // grind for everybody.
+    maxTripKm: 800,
   },
   bike: {
     label: 'Bike',
@@ -86,6 +90,7 @@ export const MODES = {
     kcalPerKm: 30, // ~500 kcal/h at a 16 km/h commuting pace
     heatExposed: true,
     costPerKm: 0.03, // rough maintenance allowance — the softest number here
+    maxTripKm: 120, // a long day's ride
   },
   foot: {
     label: 'Walk',
@@ -96,6 +101,7 @@ export const MODES = {
     kcalPerKm: 62, // ~100 kcal/mile for a ~70 kg adult at moderate pace
     heatExposed: true,
     costPerKm: 0,
+    maxTripKm: 42, // roughly a marathon; beyond this it is not a walk
   },
 };
 

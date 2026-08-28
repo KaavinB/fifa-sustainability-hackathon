@@ -17,7 +17,8 @@ async function osrm(mode, waypoints, { alternatives }) {
     alternatives: alternatives ? '3' : 'false',
   });
   const url = `${host}/route/v1/driving/${coordString(waypoints)}?${params}`;
-  const res = await fetch(url);
+  // A public instance that has not answered in 20s is not going to.
+  const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
   if (!res.ok) throw new Error(`Routing service returned ${res.status}`);
   const data = await res.json();
   if (data.code !== 'Ok' || !data.routes?.length) {

@@ -579,10 +579,20 @@ async function compare() {
     const origin = await ensurePlace('origin');
     const destination = await ensurePlace('destination');
 
+    const straight = haversine(origin.coord, destination.coord);
+    const ceiling = MODES[state.mode].maxTripKm * 1000;
+    if (straight > ceiling) {
+      const suggestion = state.mode === 'foot' ? 'Bike or Drive' : 'Drive';
+      setStatus(
+        `That is ${Math.round(straight / 1000)} km in a straight line — too far to ` +
+          `${MODES[state.mode].label.toLowerCase()}. Try ${suggestion}.`,
+        true,
+      );
+      return;
+    }
+
     setStatus('Asking the router for every sensible way there…');
     let candidates = await fetchBaseRoutes(state.mode, origin.coord, destination.coord);
-
-    const straight = haversine(origin.coord, destination.coord);
     let layer = null;
 
     if (straight > 60000) {
@@ -1240,6 +1250,9 @@ function init() {
 
 init();
 
-// Test hooks: the browser harness needs to inspect map + state.
-window.__map = map;
-window.__state = state;
+// Test hooks for the browser harness. Gated to local hosts so production does
+// not hand its internals to anything that asks.
+if (['localhost', '127.0.0.1', ''].includes(window.location.hostname)) {
+  window.__map = map;
+  window.__state = state;
+}

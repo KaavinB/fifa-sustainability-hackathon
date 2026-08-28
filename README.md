@@ -136,6 +136,34 @@ that step — the road the maneuver puts you **onto**, not the one you are leavi
 sidewalk network is largely unnamed, and there the bare turn word is more honest than inventing
 a street name.
 
+## On a phone
+
+Below 900px the sidebar becomes a bottom sheet over a full-screen map, with
+three snap points — peek, half, full — dragged by the handle. Dragging is
+confined to the handle so it never competes with the list scrolling inside it;
+a press cycles sizes and the arrow keys work. Minimised, the sheet shows the
+trip and the headline result, and nothing else.
+
+The subtlety worth knowing if you touch it: the sheet is taller than the
+screen and slides down into place, so the part below the viewport is
+off-screen rather than scrolled. The scrolling area is therefore sized to
+whatever is visible at the current snap point, and the snap points are
+re-measured whenever the handle's contents change height.
+
+Selecting a route, a turn, or a water stop frames it against the *visible*
+part of the map rather than the centre of the element — with the sheet at half
+height that is a ~170px difference, which is the difference between seeing
+your route and seeing the sheet on top of it.
+
+## Map styling
+
+The basemap is CARTO's Voyager, chosen because its natural colouring makes the
+green space the app scores on visible under the routes. A pale style is
+available behind the 🗺 toggle when the route colours need to dominate. Ten
+tile errors switch the map to OpenStreetMap's own tiles automatically — a
+throttled CDN shows up as grey squares with nothing in the console, which is
+not a thing to discover during a demo.
+
 ## Running it
 
 It is a static site with no build step and no API keys.
