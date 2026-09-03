@@ -115,6 +115,40 @@ That second result is either a genuine gap in Houston's pedestrian infrastructur
 OpenStreetMap's coverage of it. Both are worth knowing before a World Cup summer, and the app
 says which it can and cannot tell.
 
+## Route profile
+
+Percentages say *how much*; they cannot say *where*. The profile answers where —
+an elevation profile for thematic layers rather than terrain, with distance
+along the route on the x-axis:
+
+```
+Green  ███████████████████████░░░░░░░███
+Shade  ░░░░████████░░░░░░░░░░░░░░░░░████
+Busy   ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+       0                0.5 mi     1.0 mi
+```
+
+Water stops sit above the rows and turns tick below, on the same axis, so the
+chart carries route context that a standalone profile cannot. Hovering reads
+out the conditions at that point; clicking flies the map there, which makes the
+profile a scrubber for the route.
+
+It is drawn from the *same* 75 m samples the score is averaged from, so the
+chart and the headline number cannot disagree — a test asserts the two match.
+
+The series are binary today because they come from OSM geometry: a sample is
+inside a canopy polygon or it is not, which is why the rows read as blocks. The
+renderer takes a value per sample, so continuous canopy-cover and land-surface
+-temperature rasters turn the same rows into gradients without changing the
+chart. That swap is the single biggest accuracy upgrade available to this app.
+
+Colours were chosen by running the palette through the validator in the
+`dataviz` skill rather than by eye: worst adjacent pair ΔE 25.5 under deuteranopia
+and 33.6 with normal vision, all six checks passing against the card surface.
+Amber marks where the route *is* busy rather than where it is calm, both because
+amber already means "busy road" on the direction chips and because the stretches
+to avoid are the ones worth finding.
+
 ## Turn-by-turn directions
 
 Selecting a route produces exact directions built from OSRM's step data — with the shade layer

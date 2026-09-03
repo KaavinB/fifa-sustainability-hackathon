@@ -27,7 +27,9 @@ export function isBigRoad(name = '', ref = '') {
  * gets a meaningful answer instead of one lucky sample.
  */
 export function pathGreenMetrics(points, layer, spacing = SAMPLE_SPACING_M) {
-  if (!layer || points.length < 2) return { greenShare: 0, shadeShare: 0, samples: [] };
+  if (!layer || points.length < 2) {
+    return { greenShare: 0, shadeShare: 0, samples: [], greenAt: [], shadeAt: [] };
+  }
   const samples = samplePath(points, spacing);
   return { ...greenMetrics(samples, layer), samples };
 }
@@ -37,8 +39,12 @@ function greenMetrics(samples, layer) {
   const { proj, polygons, canopyPolygons, greenIndex, treeIndex } = layer;
   let greenHits = 0;
   let treeHits = 0;
+  // Kept per sample, not just counted: the profile chart needs to know *where*
+  // along the route each quality holds, which the averages throw away.
+  const greenAt = new Uint8Array(samples.length);
+  const shadeAt = new Uint8Array(samples.length);
 
-  for (const p of samples) {
+  for (const [index, p] of samples.entries()) {
     const xy = proj.toXY(p);
 
     let green = insideGreen(xy, polygons);
@@ -50,7 +56,10 @@ function greenMetrics(samples, layer) {
         }
       }
     }
-    if (green) greenHits++;
+    if (green) {
+      greenHits++;
+      greenAt[index] = 1;
+    }
 
     let shaded = insideGreen(xy, canopyPolygons);
     if (!shaded) {
@@ -64,11 +73,14 @@ function greenMetrics(samples, layer) {
         }
       }
     }
-    if (shaded) treeHits++;
+    if (shaded) {
+      treeHits++;
+      shadeAt[index] = 1;
+    }
   }
 
   const n = Math.max(1, samples.length);
-  return { greenShare: greenHits / n, shadeShare: treeHits / n };
+  return { greenShare: greenHits / n, shadeShare: treeHits / n, greenAt, shadeAt };
 }
 
 /** Share of route distance spent on freeways and major arterials. */
@@ -104,6 +116,62 @@ function normalise(values) {
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 
 /**
+ * Per-sample series along the route, for the profile chart: where it is green,
+ * where it is shaded, and where it runs along a big road. Same 75 m samples the
+ * score is averaged from, so the chart and the number can never disagree.
+ *
+ * The busy series comes from OSRM steps rather than the green layer, so each
+ * sample is matched to the step it falls inside by cumulative distance.
+ */
+function buildProfile(route, samples, green) {
+  if (samples.length < 2) return null;
+
+  // Chords between 75 m samples cut corners, so the accumulated length falls
+  // short of the routed distance. Scale to the real distance: the axis has to
+  // agree with the route, or the water and turn marks — which are positioned
+  // from the routed distance — land in the wrong place.
+  const distances = new Float64Array(samples.length);
+  for (let i = 1; i < samples.length; i++) {
+    distances[i] = distances[i - 1] + haversine(samples[i - 1], samples[i]);
+  }
+  const walked = distances[distances.length - 1] || 1;
+  const total = route.distance || walked;
+  const stretch = total / walked;
+  for (let i = 0; i < distances.length; i++) distances[i] *= stretch;
+
+  // Flatten the steps once, keeping the distance each one starts at.
+  const spans = [];
+  let cursor = 0;
+  for (const leg of route.legs || []) {
+    for (const step of leg.steps || []) {
+      spans.push({ start: cursor, end: cursor + (step.distance || 0), busy: isBigRoad(step.name || '', step.ref || '') });
+      cursor += step.distance || 0;
+    }
+  }
+
+  const busyAt = new Uint8Array(samples.length);
+  if (spans.length) {
+    // Steps and samples are both ordered, so walk them together rather than
+    // searching the step list for every sample.
+    let cursorIndex = 0;
+    for (let i = 0; i < samples.length; i++) {
+      const along = distances[i];
+      while (cursorIndex < spans.length - 1 && along > spans[cursorIndex].end) cursorIndex++;
+      busyAt[i] = spans[cursorIndex].busy ? 1 : 0;
+    }
+  }
+
+  return {
+    total,
+    distances,
+    coords: samples,
+    green: green.greenAt ?? [],
+    shade: green.shadeAt ?? [],
+    busy: busyAt,
+  };
+}
+
+/**
  * Score every candidate route, two ways.
  *
  * ABSOLUTE puts each component on a fixed 0–1 scale that means the same thing
@@ -124,7 +192,9 @@ export function scoreRoutes(routes, layer, mode, weights, scoreMode = 'absolute'
 
   const enriched = routes.map((route) => {
     const samples = samplePath(route.points, SAMPLE_SPACING_M);
-    const green = layer ? greenMetrics(samples, layer) : { greenShare: 0, shadeShare: 0 };
+    const green = layer
+      ? greenMetrics(samples, layer)
+      : { greenShare: 0, shadeShare: 0, greenAt: [], shadeAt: [] };
     const roads = bigRoadShare(route);
     const km = route.distance / 1000;
     const minutes = route.duration / 60;
@@ -145,6 +215,7 @@ export function scoreRoutes(routes, layer, mode, weights, scoreMode = 'absolute'
     return {
       ...route,
       samples,
+      profile: buildProfile(route, samples, green),
       water,
       metrics: {
         km,

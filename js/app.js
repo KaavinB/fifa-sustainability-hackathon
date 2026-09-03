@@ -15,6 +15,7 @@ import { loadGreenLayer } from './greenspace.js';
 import { scoreRoutes, assignBadges, formatDistance, formatDuration } from './scoring.js';
 import { buildDirections, stepDistance } from './directions.js';
 import { assignStopsToSteps } from './water.js';
+import { renderProfile, PROFILE_SERIES, sampleAt, describeSample } from './profile.js';
 import { suggestPlaces, resolvePlace, describeCoordinate, locateMe } from './places.js';
 import { initSheet } from './sheet.js';
 
@@ -720,6 +721,7 @@ function rescore({ fit = false } = {}) {
 
   renderRoutes();
   renderDirections();
+  renderRouteProfile();
   renderWater();
   renderDetail();
   drawRoutes();
@@ -753,6 +755,7 @@ function select(index, { focus = true } = {}) {
   state.activeStep = null;
   renderRoutes();
   renderDirections();
+  renderRouteProfile();
   renderWater();
   renderDetail();
   drawRoutes();
@@ -1034,6 +1037,82 @@ function focusWater(index) {
 function setWeightsOpen(open) {
   el('weights-body').hidden = !open;
   el('weights-toggle').setAttribute('aria-expanded', String(open));
+}
+
+/* -------------------------------------------------------- profile --- */
+
+function renderRouteProfile() {
+  const route = state.routes[state.selected];
+  const card = el('profile-card');
+  card.hidden = !route?.profile;
+  if (card.hidden) return;
+
+  el('profile-title').textContent = `Route profile · ${route.name}`;
+  el('profile').innerHTML = renderProfile(route, {
+    water: route.water?.stops || [],
+    turns: state.directions.filter((step) => !step.isArrival),
+  });
+
+  const m = route.metrics;
+  el('profile-summary').textContent =
+    `${Math.round(m.greenShare * 100)}% green · ${Math.round(m.shadeShare * 100)}% shaded · ` +
+    `${Math.round(m.bigRoadShare * 100)}% beside traffic, sampled every 75 m`;
+
+  el('profile-legend').innerHTML = PROFILE_SERIES.map(
+    (series) =>
+      `<span class="profile-key" title="${series.description}">` +
+      `<i style="background:${series.color}"></i>${series.label}</span>`,
+  )
+    .concat(
+      route.water?.stops.length
+        ? ['<span class="profile-key"><i style="background:#0284c7;border-radius:50%"></i>Water</span>']
+        : [],
+    )
+    .join('');
+
+  bindProfilePointer(route);
+}
+
+/**
+ * Crosshair, readout, and click-to-locate. The profile doubles as a scrubber:
+ * clicking a point on it puts that point of the route on the map.
+ */
+function bindProfilePointer(route) {
+  const svg = el('profile').querySelector('.profile-svg');
+  const hit = svg?.querySelector('.profile-hit');
+  const cursor = svg?.querySelector('.profile-cursor');
+  if (!hit) return;
+
+  const fractionFor = (event) => {
+    const box = svg.getBoundingClientRect();
+    const hitBox = hit.getBoundingClientRect();
+    void box;
+    return Math.min(1, Math.max(0, (event.clientX - hitBox.left) / hitBox.width));
+  };
+
+  const show = (event) => {
+    const fraction = fractionFor(event);
+    const index = sampleAt(route.profile, fraction);
+    const info = describeSample(route.profile, index);
+    const x = hit.x.baseVal.value + fraction * hit.width.baseVal.value;
+    cursor.setAttribute('x1', x);
+    cursor.setAttribute('x2', x);
+    cursor.style.display = '';
+    el('profile-readout').innerHTML = `${info.distance} in · ${info.parts}`;
+    return index;
+  };
+
+  hit.addEventListener('pointermove', show);
+  hit.addEventListener('pointerdown', (event) => {
+    const index = show(event);
+    map.flyTo(offsetForVisibleArea(route.profile.coords[index]), Math.max(map.getZoom(), 16), {
+      duration: 0.45,
+    });
+  });
+  hit.addEventListener('pointerleave', () => {
+    cursor.style.display = 'none';
+    el('profile-readout').textContent = '';
+  });
 }
 
 function renderScoreModeHint() {
