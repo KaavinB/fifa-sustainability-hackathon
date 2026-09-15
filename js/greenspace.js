@@ -110,6 +110,55 @@ function fromOverpass(json) {
   return out;
 }
 
+/**
+ * GeoJSON in, normalised elements out. Accepted so collaborators can hand over
+ * the format their GIS tools already export instead of matching a bespoke one —
+ * ogr2ogr will turn a shapefile into this in one command.
+ *
+ * The trap this hides: GeoJSON is [lon, lat] and everything here is [lat, lon].
+ * Getting that backwards puts Houston in the Indian Ocean, silently.
+ */
+function fromGeoJSON(doc) {
+  const out = [];
+  const flip = (ring) => ring.map(([lon, lat]) => [lat, lon]);
+
+  for (const feature of doc.features || []) {
+    const geometry = feature.geometry;
+    if (!geometry) continue;
+    const tags = feature.properties || {};
+
+    switch (geometry.type) {
+      case 'Point':
+        out.push({ kind: 'node', tags, geom: [[geometry.coordinates[1], geometry.coordinates[0]]] });
+        break;
+      case 'MultiPoint':
+        for (const [lon, lat] of geometry.coordinates) {
+          out.push({ kind: 'node', tags, geom: [[lat, lon]] });
+        }
+        break;
+      case 'LineString':
+        out.push({ kind: 'way', tags, geom: flip(geometry.coordinates) });
+        break;
+      case 'MultiLineString':
+        for (const line of geometry.coordinates) out.push({ kind: 'way', tags, geom: flip(line) });
+        break;
+      case 'Polygon':
+        // Outer ring only: holes would need a different inside test than the
+        // one the scorer uses, and parks rarely have them.
+        out.push({ kind: 'way', tags, geom: flip(geometry.coordinates[0]) });
+        break;
+      case 'MultiPolygon':
+        for (const polygon of geometry.coordinates) {
+          out.push({ kind: 'way', tags, geom: flip(polygon[0]) });
+        }
+        break;
+      default:
+        break;
+    }
+  }
+  return out;
+}
+
 function fromBundle(doc, bbox) {
   const out = [];
   for (const el of doc.elements) {
@@ -152,12 +201,21 @@ async function fetchGreenElements(bbox) {
     return { elements, source: 'overpass' };
   } catch (overpassError) {
     const doc = await loadBundle().catch(() => null);
-    if (!doc || !bboxOverlaps(bbox, doc.bbox)) throw overpassError;
+    if (!doc) throw overpassError;
+    // Our own bundle declares its coverage; a plain FeatureCollection does not,
+    // so assume it covers whatever was asked for rather than refusing it.
+    if (doc.bbox && !bboxOverlaps(bbox, doc.bbox)) throw overpassError;
+    const elements =
+      doc.type === 'FeatureCollection' ? fromGeoJSON(doc) : fromBundle(doc, bbox);
     return {
-      elements: fromBundle(doc, bbox),
+      elements,
       source: 'bundle',
-      // The bundle only covers the inner loop, so say so when the trip runs past it.
-      partial: bbox.s < doc.bbox.s || bbox.n > doc.bbox.n || bbox.w < doc.bbox.w || bbox.e > doc.bbox.e,
+      // Our bundle only covers the inner loop, so say so when the trip runs
+      // past it. A supplied FeatureCollection declares no extent, so we cannot
+      // know, and claiming partial coverage would be a guess.
+      partial: doc.bbox
+        ? bbox.s < doc.bbox.s || bbox.n > doc.bbox.n || bbox.w < doc.bbox.w || bbox.e > doc.bbox.e
+        : false,
     };
   }
 }

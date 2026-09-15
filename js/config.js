@@ -4,33 +4,46 @@
 //
 // CARTO began requiring an API key and now serves an "API KEY REQUIRED"
 // watermark baked into otherwise valid 200 responses — which is why the tile
-// error fallback never caught it: nothing errored. Both styles below are
-// keyless, and each carries its own attribution because they are different
-// providers, not different styles from one.
+// error fallback never caught it: nothing errored.
 //
-// If an Esri key ever lands, it goes in a third entry here with the key as a
-// query parameter; nothing else in the app needs to know.
+// OpenFreeMap serves vector tiles with no key and no rate limit. Liberty is the
+// OSM style built to read like Google/Mapbox Streets, which is what raster OSM
+// tiles are not. Vector also means crisp labels at any zoom and a style that can
+// be recoloured later if we want the routes to dominate harder.
+//
+// `raster` entries need no WebGL, so one is kept as the fallback for a machine
+// or a network that cannot do vector.
 export const BASEMAPS = {
   streets: {
     label: 'Streets',
+    type: 'vector',
+    style: 'https://tiles.openfreemap.org/styles/liberty',
+    attribution:
+      '&copy; <a href="https://openfreemap.org/">OpenFreeMap</a> ' +
+      '<a href="https://www.openmaptiles.org/">OpenMapTiles</a> ' +
+      'data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  },
+  plain: {
+    label: 'Plain',
+    type: 'vector',
+    style: 'https://tiles.openfreemap.org/styles/positron',
+    attribution:
+      '&copy; <a href="https://openfreemap.org/">OpenFreeMap</a> ' +
+      '<a href="https://www.openmaptiles.org/">OpenMapTiles</a> ' +
+      'data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  },
+  osm: {
+    label: 'OSM',
+    type: 'raster',
     url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
     maxZoom: 19,
     attribution:
       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   },
-  plain: {
-    label: 'Plain',
-    url: 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
-    maxZoom: 19,
-    attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors · ' +
-      'tiles by <a href="https://www.hotosm.org/">HOT</a> and ' +
-      '<a href="https://openstreetmap.fr/">OSM France</a>',
-  },
 };
 
 // Order the automatic fallback walks when a provider starts failing.
-export const BASEMAP_ORDER = ['streets', 'plain'];
+export const BASEMAP_ORDER = ['streets', 'plain', 'osm'];
 
 export const HOUSTON_CENTER = [29.7604, -95.3698];
 

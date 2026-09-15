@@ -189,6 +189,27 @@ part of the map rather than the centre of the element — with the sheet at half
 height that is a ~170px difference, which is the difference between seeing
 your route and seeing the sheet on top of it.
 
+## Bringing your own data
+
+The loader accepts a **GeoJSON FeatureCollection**, so collaborators can hand
+over what their GIS tools already export — `ogr2ogr -f GeoJSON out.geojson
+in.shp` covers a shapefile in one command. Point, MultiPoint, LineString,
+MultiLineString, Polygon and MultiPolygon are all read; polygon holes are
+ignored, since the scorer's inside-test does not model them and parks rarely
+have them. Feature `properties` are read as OSM-style tags, so `{"leisure":
+"park"}` or `{"amenity": "drinking_water"}` classify a feature exactly as the
+live data would.
+
+The trap worth stating plainly: **GeoJSON is `[lon, lat]` and everything inside
+this app is `[lat, lon]`.** Getting that backwards puts Houston in the Indian
+Ocean without erroring. The reader flips it; a test asserts the result still
+lands in Texas.
+
+Drop the file at [`data/houston-green.json`](data/houston-green.json) or point
+`FALLBACK_DATA_URL` in [`js/config.js`](js/config.js) at it. The compact bundle
+format that the built-in extract uses is still read too — the loader detects
+which one it has.
+
 ## Map styling
 
 Two keyless basemaps: **Streets** (OpenStreetMap's own tiles) and **Plain** (the

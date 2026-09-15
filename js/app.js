@@ -63,14 +63,21 @@ let tileFailures = 0;
 
 function makeBasemap(key) {
   const spec = BASEMAPS[key];
-  const layer = L.tileLayer(spec.url, { attribution: spec.attribution, maxZoom: spec.maxZoom });
 
-  // A provider that starts failing shows as grey squares with nothing in the
-  // console, so count the misses and move to the next one.
-  //
-  // Note this cannot catch a provider that *watermarks* rather than fails:
-  // CARTO began returning "API KEY REQUIRED" painted into a valid 200 tile,
-  // which no error handler can see. That is why the defaults are keyless.
+  // Vector needs WebGL and the MapLibre bridge; if either is missing, fall
+  // straight through to raster rather than showing an empty map.
+  if (spec.type === 'vector' && typeof L.maplibreGL === 'function' && hasWebGL()) {
+    return L.maplibreGL({ style: spec.style, attribution: spec.attribution });
+  }
+  const raster = spec.type === 'raster' ? spec : BASEMAPS.osm;
+  const layer = L.tileLayer(raster.url, {
+    attribution: raster.attribution,
+    maxZoom: raster.maxZoom,
+  });
+
+  // A raster provider that starts failing shows as grey squares with nothing in
+  // the console, so count the misses and move on. This cannot catch a provider
+  // that *watermarks* rather than fails, which is why none of these need keys.
   layer.on('tileerror', () => {
     tileFailures += 1;
     if (tileFailures !== 10) return;
@@ -82,6 +89,19 @@ function makeBasemap(key) {
   return layer;
 }
 
+let webglAnswer = null;
+
+function hasWebGL() {
+  if (webglAnswer !== null) return webglAnswer;
+  try {
+    const canvas = document.createElement('canvas');
+    webglAnswer = Boolean(canvas.getContext('webgl2') || canvas.getContext('webgl'));
+  } catch {
+    webglAnswer = false;
+  }
+  return webglAnswer;
+}
+
 let basemap = makeBasemap('streets').addTo(map);
 
 function setBasemap(key) {
@@ -89,8 +109,8 @@ function setBasemap(key) {
   tileFailures = 0;
   map.removeLayer(basemap);
   basemap = makeBasemap(key).addTo(map);
-  // Keep the tiles under the routes after swapping.
-  basemap.bringToBack();
+  // Keep the basemap under the routes after swapping.
+  basemap.bringToBack?.();
   const button = el('basemap-btn');
   if (button) button.textContent = `🗺 ${BASEMAPS[key].label}`;
 }
