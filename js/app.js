@@ -2,7 +2,7 @@
 
 import {
   BASEMAPS,
-  TILE_ATTR,
+  BASEMAP_ORDER,
   HOUSTON_CENTER,
   MODES,
   DEFAULT_WEIGHTS,
@@ -47,7 +47,7 @@ const state = {
   markers: {},
   stepLayer: null,
   labelLayer: null,
-  basemap: 'natural',
+  basemap: 'streets',
   waterLayer: null,
   showWater: true,
   busy: false,
@@ -61,28 +61,38 @@ const map = L.map('map', { zoomControl: true }).setView(HOUSTON_CENTER, 12);
 
 let tileFailures = 0;
 
-function makeBasemap(url) {
-  const layer = L.tileLayer(url, { attribution: TILE_ATTR, maxZoom: 19 });
-  // A throttled CDN shows as grey squares with no error anywhere. Count the
-  // misses and fall back to OSM's own tiles rather than leave a broken map.
+function makeBasemap(key) {
+  const spec = BASEMAPS[key];
+  const layer = L.tileLayer(spec.url, { attribution: spec.attribution, maxZoom: spec.maxZoom });
+
+  // A provider that starts failing shows as grey squares with nothing in the
+  // console, so count the misses and move to the next one.
+  //
+  // Note this cannot catch a provider that *watermarks* rather than fails:
+  // CARTO began returning "API KEY REQUIRED" painted into a valid 200 tile,
+  // which no error handler can see. That is why the defaults are keyless.
   layer.on('tileerror', () => {
     tileFailures += 1;
-    if (tileFailures === 10 && state.basemap !== 'fallback') {
-      setBasemap('fallback');
-      setStatus('Map tiles were failing, so the basemap switched to OpenStreetMap.');
-    }
+    if (tileFailures !== 10) return;
+    const next = BASEMAP_ORDER.find((name) => name !== state.basemap);
+    if (!next) return;
+    setBasemap(next);
+    setStatus(`Map tiles were failing, so the basemap switched to ${BASEMAPS[next].label}.`);
   });
   return layer;
 }
 
-let basemap = makeBasemap(BASEMAPS.natural.url).addTo(map);
+let basemap = makeBasemap('streets').addTo(map);
 
 function setBasemap(key) {
   state.basemap = key;
+  tileFailures = 0;
   map.removeLayer(basemap);
-  basemap = makeBasemap(BASEMAPS[key].url).addTo(map);
+  basemap = makeBasemap(key).addTo(map);
   // Keep the tiles under the routes after swapping.
   basemap.bringToBack();
+  const button = el('basemap-btn');
+  if (button) button.textContent = `🗺 ${BASEMAPS[key].label}`;
 }
 
 // Start is a plain white dot sitting on the point; the destination is a
@@ -1270,9 +1280,8 @@ function init() {
   });
 
   el('basemap-btn').addEventListener('click', () => {
-    const next = state.basemap === 'natural' ? 'minimal' : 'natural';
-    setBasemap(next);
-    el('basemap-btn').textContent = `🗺 ${BASEMAPS[next].label}`;
+    const index = BASEMAP_ORDER.indexOf(state.basemap);
+    setBasemap(BASEMAP_ORDER[(index + 1) % BASEMAP_ORDER.length]);
   });
 
   el('toggle-water').addEventListener('click', () => {

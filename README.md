@@ -191,12 +191,23 @@ your route and seeing the sheet on top of it.
 
 ## Map styling
 
-The basemap is CARTO's Voyager, chosen because its natural colouring makes the
-green space the app scores on visible under the routes. A pale style is
-available behind the 🗺 toggle when the route colours need to dominate. Ten
-tile errors switch the map to OpenStreetMap's own tiles automatically — a
-throttled CDN shows up as grey squares with nothing in the console, which is
-not a thing to discover during a demo.
+Two keyless basemaps: **Streets** (OpenStreetMap's own tiles) and **Plain** (the
+HOT style from OSM France), switched with the 🗺 button. Both show parks and
+water in natural colour, which matters here — the green space the app scores on
+should be visible under the routes.
+
+This used to be CARTO's Voyager. CARTO began requiring an API key and now paints
+**"API KEY REQUIRED" into otherwise valid tiles**, returning HTTP 200 with the
+watermark baked into the image. That is worth knowing because it defeats the
+obvious defence: the app falls back to another provider after ten `tileerror`
+events, and a watermarked tile raises no error at all. No handler can see it.
+The fix was not a better detector, it was removing the dependency.
+
+Ten tile failures still switch providers automatically, which covers an outage
+or throttling. At demo scale OSM's tile policy is fine; a deployment with real
+traffic would need its own tiles or a keyed provider — an Esri key would slot
+into `BASEMAPS` in [`js/config.js`](js/config.js) as a third entry with the key
+as a query parameter, and nothing else in the app would need to change.
 
 ## Running it
 
