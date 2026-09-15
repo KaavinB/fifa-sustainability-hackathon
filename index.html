@@ -99,11 +99,28 @@
 
           <div class="field">
             <span>How are you getting there?</span>
-            <div class="mode-row" id="mode-row">
+            <div class="mode-row mode-row-4" id="mode-row">
               <button type="button" class="mode is-active" data-mode="foot">🚶 Walk</button>
               <button type="button" class="mode" data-mode="bike">🚲 Bike</button>
+              <button type="button" class="mode" data-mode="transit">🚌 METRO</button>
               <button type="button" class="mode" data-mode="car">🚗 Drive</button>
             </div>
+          </div>
+
+          <div class="field" id="when-field" hidden>
+            <span>When?</span>
+            <div class="when-row">
+              <select id="when-kind" aria-label="Depart at or arrive by">
+                <option value="depart">Leave at</option>
+                <option value="arrive">Arrive by</option>
+              </select>
+              <input type="datetime-local" id="when-time" aria-label="Date and time, Houston time" />
+              <button type="button" class="link-btn" id="when-now">now</button>
+            </div>
+            <p class="hint" style="margin:6px 0 0">
+              Houston time. METRO timetables are scheduled, not live — a late bus still
+              shows on time here.
+            </p>
           </div>
 
           <button id="compare-btn" class="primary">Compare routes</button>
@@ -113,6 +130,13 @@
         <section class="card" id="results-card" hidden>
           <h2>Routes</h2>
           <div id="routes"></div>
+        </section>
+
+        <section class="card" id="transit-card" hidden>
+          <h2><span id="transit-title">METRO trip</span></h2>
+          <p class="hint" id="transit-summary"></p>
+          <div id="transit-legs"></div>
+          <p class="hint" id="transit-sources"></p>
         </section>
 
         <section class="card" id="profile-card" hidden>
@@ -152,8 +176,12 @@
 
         <footer class="foot">
           <p>
-            Routing by <a href="https://project-osrm.org/">OSRM</a> · green space and tree canopy
-            from <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> via
+            Walking, cycling and driving routed by <a href="https://project-osrm.org/">OSRM</a> ·
+            METRORail and METRO bus trips routed by
+            <a href="https://transitous.org/">Transitous</a> over
+            <a href="https://www.ridemetro.org/">Houston METRO</a>'s published GTFS feed ·
+            green space and tree canopy from
+            <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> via
             <a href="https://overpass-api.de/">Overpass</a>. Built for the FIFA Sustainability
             Hackathon.
           </p>

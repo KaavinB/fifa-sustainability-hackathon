@@ -55,6 +55,30 @@ export const OSRM_HOSTS = {
   foot: 'https://routing.openstreetmap.de/routed-foot',
 };
 
+// TRANSIT ROUTING
+//
+// MOTIS, run as a free keyless public service by the Transitous project, which
+// ingests Houston METRO's own GTFS feed (Transitland
+// `f-9vk-metropolitantransitauthorityofharriscounty`). Every route number,
+// stop name and departure time the app shows is read back out of this
+// response — see the header of js/transit.js for why that matters.
+export const TRANSIT_API = 'https://api.transitous.org/api/v1/plan';
+
+// How wide a departure window to search, in seconds. An hour is long enough to
+// catch a second option on a 30-minute headway, which most METRO local routes
+// run outside rush hour.
+export const TRANSIT_SEARCH_WINDOW_S = 3600;
+
+// Where METRO's timetable and fare information actually lives, for the links
+// this app shows instead of numbers it cannot source.
+export const METRO_LINKS = {
+  fares: 'https://www.ridemetro.org/fares-passes',
+  schedules: 'https://www.ridemetro.org/schedules-maps',
+  agency: 'https://www.ridemetro.org/',
+  feed: 'https://www.transit.land/feeds/f-9vk-metropolitantransitauthorityofharriscounty',
+  router: 'https://transitous.org/',
+};
+
 export const OVERPASS_ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
@@ -114,6 +138,27 @@ export const MODES = {
     costPerKm: 0.03, // rough maintenance allowance — the softest number here
     maxTripKm: 120, // a long day's ride
   },
+  transit: {
+    label: 'Transit',
+    verb: 'Walk',
+    gerund: 'by METRO',
+    icon: '🚌',
+    // A transit trip is not one emission factor: the walking legs emit
+    // nothing and each ride is charged at its own vehicle's rate (see
+    // TRANSIT_CO2_PER_KM), so this is computed per leg in js/transit.js
+    // rather than read from here. The figures below describe the walking
+    // part, which is the only part a rider's own body is doing.
+    co2PerKm: 0,
+    kcalPerKm: 62,
+    // Partly. Walking to the stop and standing at it are outdoors; the ride
+    // is not. The scorer uses the route's own outdoor seconds instead of
+    // treating the whole trip as exposed.
+    heatExposed: true,
+    costPerKm: 0,
+    // METRO's network reaches roughly this far across the service area;
+    // beyond it there is nothing for the planner to find.
+    maxTripKm: 120,
+  },
   foot: {
     label: 'Walk',
     verb: 'Walk',
@@ -127,9 +172,24 @@ export const MODES = {
   },
 };
 
-// A METRO local bus at average occupancy, for the "what if you took transit"
-// comparison line: ~0.17 kg CO2 per passenger-mile (FTA transit averages).
-export const TRANSIT_CO2_PER_KM = 105;
+// Transit CO2 per passenger-kilometre, by vehicle.
+//
+// The bus figure is the one this app has always used for its "what if you took
+// transit" comparison line: a METRO local bus at average occupancy, ~0.17 kg
+// CO2 per passenger-mile (FTA transit averages).
+//
+// The rail figure is derived from it rather than pulled from a second study,
+// so the two are on the same footing instead of quietly mixing
+// methodologies: the FTA's own averages put light rail at 0.36 lb CO2e per
+// passenger-mile against 0.64 lb for a transit bus, and 105 g/km scaled by
+// that 0.56 ratio is 59. It is an average for US light rail, not a
+// measurement of METRORail, which runs on ERCOT grid power and would need
+// Houston's own generation mix to do properly.
+export const TRANSIT_CO2_PER_KM = {
+  bus: 105,
+  rail: 59,
+  ferry: 105,
+};
 
 // Rendered in the UI so the provenance of each figure travels with the number.
 export const IMPACT_SOURCES = [
@@ -143,8 +203,16 @@ export const IMPACT_SOURCES = [
   },
   { figure: 'Walking CO₂ — 0 g/km', source: 'no vehicle; dietary energy reported as calories' },
   {
-    figure: 'Transit CO₂ — 105 g/km',
-    source: 'FTA transit averages, local bus at average occupancy (~0.17 kg/passenger-mile)',
+    figure: 'Transit CO₂ — 105 g/km bus, 59 g/km rail',
+    source:
+      'FTA transit averages, local bus at average occupancy (~0.17 kg/passenger-mile); ' +
+      'rail scaled from it by the FTA light-rail : bus ratio (0.36 vs 0.64 lb/passenger-mile)',
+  },
+  {
+    figure: 'METRO routes, stops and times',
+    source:
+      "METRO's own GTFS feed, routed live by MOTIS/Transitous — every route number and " +
+      'departure time is read from the feed, not stored in this app. Scheduled times, not live.',
   },
   { figure: 'Calories — 62 kcal/km walking, 30 cycling', source: '~100 kcal/mile, ~70 kg adult' },
   { figure: 'Driving cost — $0.42/km', source: 'IRS 2024 standard mileage rate, $0.67/mile' },

@@ -7,8 +7,9 @@ NRG Stadium in June and July, when the afternoon heat index regularly clears 105
 mapping app in the world will tell a visitor the *fastest* way from Discovery Green to the
 stadium. None of them will tell them which way has shade.
 
-This app compares the realistic routes between two Houston points and scores each one on the
-things that actually decide whether a person walks, bikes, or gives up and calls a car:
+This app compares the realistic routes between two Houston points — on foot, by bike, by car, or
+on **METRORail and METRO buses** — and scores each one on the things that actually decide whether
+a person walks, rides, or gives up and calls a car:
 
 | Signal | What it measures | Source |
 | --- | --- | --- |
@@ -34,13 +35,19 @@ same sources under "Trip impact" so provenance travels with the number.
 | Driving CO₂ | 251 g/km | US EPA typical passenger vehicle, ~404 g CO₂/mile, single occupant |
 | Cycling CO₂ | 5 g/km | European Cyclists' Federation lifecycle estimate, manufacturing share only |
 | Walking CO₂ | 0 g/km | no vehicle; dietary energy is reported as calories instead |
-| Transit CO₂ | 105 g/km | FTA transit averages, local bus at average occupancy (~0.17 kg/passenger-mile) |
+| Bus CO₂ | 105 g/km | FTA transit averages, local bus at average occupancy (~0.17 kg/passenger-mile) |
+| Rail CO₂ | 59 g/km | the bus figure scaled by the FTA's light-rail : bus ratio (0.36 vs 0.64 lb/passenger-mile) |
 | Calories | 62 kcal/km walking, 30 cycling | ~100 kcal/mile for a ~70 kg adult |
 | Driving cost | $0.42/km | IRS 2024 standard mileage rate, $0.67/mile (fuel, maintenance, insurance, depreciation) |
 | Unshaded minutes, green %, water | — | computed here from OSM geometry along the route |
 
 Caveats worth saying out loud: the ECF's full cycling figure is ~21 g/km once the extra food is
-counted, and this app reports that part as calories rather than double-counting it as carbon.
+counted, and this app reports that part as calories rather than double-counting it as carbon. The
+rail figure is derived from the bus one rather than pulled from a second study, so the two sit on
+the same methodology instead of quietly mixing them — it is a US light-rail average, not a
+measurement of METRORail, which runs on ERCOT grid power and would need Houston's own generation
+mix to do properly. A transit trip is charged leg by leg: the walking emits nothing, and each ride
+is charged at its own vehicle's rate.
 The bike maintenance cost ($0.03/km) is a rough allowance, not a sourced figure. Car CO₂ assumes
 a single occupant — carpooling divides it.
 
@@ -92,6 +99,72 @@ an A&M building in the medical center. Five ways in:
 
 The World Cup venues and fan sites are still one keystroke away as starred suggestions, but they
 are a shortcut, not the menu.
+
+## Taking METRO
+
+Pick **🚌 METRO** and the app plans a real trip on Houston METRO's network: METRORail and the bus
+routes, with the numbers, stop names, headsigns and departure times the rider will actually see.
+
+**Nothing about those routes is written down in this app.** There is no route table in the source
+to drift out of date and nothing composed from memory. Every route number, route name, line
+colour, stop name, stop code, headsign and departure time is read out of METRO's own
+[GTFS feed](https://www.transit.land/feeds/f-9vk-metropolitantransitauthorityofharriscounty) —
+the agency's published timetable export — routed by [MOTIS](https://github.com/motis-project/motis)
+on the free public service run by [Transitous](https://transitous.org/). If METRO reroutes the 56
+tomorrow, the app follows on the next feed refresh with no code change. The two things the feed
+does *not* contain, the app does not claim: fares (it links to METRO's fare page) and live vehicle
+positions (it says "scheduled times" on every result).
+
+### Three searches, not one
+
+Asked for the best way from Discovery Green to NRG, MOTIS returns the optimal set for the
+departure window — which in Houston is usually the Red Line, repeated at every headway. True, and
+useless for comparing anything. So the app asks three times: unrestricted, bus-only, and rail-only.
+Each answer is a real routed trip on the published timetable; together they surface the
+alternatives the optimal set hides. Rice → NRG at 5pm comes back as:
+
+```
+084          42 min   🚶 0.5 mi › 🚌 084 › 🚶 0.4 mi        85/100   Greenest, Most shaded
+056 → 700    37 min   🚶 0.4 mi › 🚌 056 › 🚆 700 › 🚶 0.6 mi 83/100   Fastest
+700          38 min   🚶 0.5 mi › 🚆 700 › 🚶 0.6 mi        81/100   Shortest
+```
+
+Duplicates are folded by the routes they use, not by time: leaving at a time keeps the earliest
+departure of each distinct trip, and **arriving by** a time keeps the latest one that still makes
+it. Asked to be at NRG by 7pm, "the 5:17 Red Line, arriving 5:55" is a correct answer to a question
+nobody asked — and the timetable window returns a dozen of them.
+
+### A transit trip is scored on the part you are outside for
+
+This is the one place the app's own thesis had to change shape. Averaging shade over a whole
+transit trip measures the tree canopy along a rail corridor seen through a window — a number about
+nobody's comfort, and one where twelve miles of riding swamps the half-mile walk that actually
+decides whether the trip is bearable. So for a METRO trip:
+
+- **Green and shade** are averaged over the walking legs only, and the cards say "Green on foot".
+- **Unshaded minutes** counts the walk to the stop *plus the wait at it*, and not the ride. A
+  52-minute Red Line trip with a 9-minute walk and a 6-minute wait leaves you in the sun for
+  about 11 minutes. Reporting 52 would be the single most misleading number this app could print.
+- **Away from traffic** is measured on the walking too. Whether the bus runs down the 288 feeder
+  is not a question that applies from inside it.
+- **Water stops** are matched against the walking legs, and the longest dry stretch is measured
+  within each of them — so the ride between two walks is never counted as a gap between fountains.
+- The **route profile** grows a fourth row, `Riding`, so the chart shows where the scored part of
+  the trip is rather than reading as twelve miles of unshaded pavement.
+- **CO₂** is charged leg by leg: walking emits nothing, and a METRORail car and a bus are charged
+  at their own rates.
+
+The map follows the same distinction — rides drawn solid in the line colour from METRO's feed
+(the Red Line is red because METRO says it is), walking dashed and grey, with hollow pins at every
+boarding and alighting point.
+
+### When?
+
+Transit is the only mode where the answer depends on the clock, so it gets a **Leave at / Arrive
+by** control. Times are Houston's whatever the browser's own zone is: a visitor planning from a
+London hotel wants the bus that leaves at 7:16 pm Central, not 1:16 am. There is no library behind
+that — the offset is computed from `Intl` for the specific instant, with a second pass for the two
+days a year the clocks move.
 
 ## Water stops
 
@@ -245,7 +318,14 @@ python3 -m http.server 8000
 origin, destination, mode
    │   (typed, clicked, dragged, or geolocated — Photon geocodes either way)
    │
-   ├─ OSRM (FOSSGIS public instances) ──────────► 1–3 fastest alternatives
+   ├─ walk / bike / drive ──────────────────────┐
+   │     OSRM (FOSSGIS public instances) ───────┴─► 1–3 fastest alternatives
+   │
+   ├─ METRO ────────────────────────────────────┐
+   │     MOTIS via Transitous, over METRO's own │
+   │     GTFS feed — three searches (any, bus   │
+   │     only, rail only), deduped by the routes┴─► real timetabled trips
+   │     they use
    │
    ├─ Overpass API over the route corridor ─────► parks, woods, trees, fountains
    │      └─ falls back to data/houston-green.json when Overpass rate-limits
@@ -254,7 +334,8 @@ origin, destination, mode
    │
    ├─ sample every route at 75 m, test each sample against a grid-indexed
    │  green layer ─────────────────────────────► green %, shade %, big-road %
-   │                                               → weighted 0–100 score
+   │     (a transit trip is measured over its       → weighted 0–100 score
+   │      walking legs only — see below)
    │
    ├─ re-sample each OSRM step at 20 m ─────────► per-instruction shade / green
    │                                               → turn-by-turn directions
@@ -270,6 +351,7 @@ origin, destination, mode
 | [`js/config.js`](js/config.js) | endpoints, emission factors, default weights, Houston presets |
 | [`js/geo.js`](js/geo.js) | haversine, local projection, path resampling, point-in-polygon, grid index |
 | [`js/routing.js`](js/routing.js) | OSRM calls, green-detour candidate generation |
+| [`js/transit.js`](js/transit.js) | METRO trip planning: the MOTIS call, polyline decoding, itinerary → route |
 | [`js/places.js`](js/places.js) | type-ahead search, reverse geocoding, geolocation |
 | [`js/aliases.js`](js/aliases.js) | local abbreviations expanded to resolvable place names |
 | [`js/sheet.js`](js/sheet.js) | the draggable mobile bottom sheet and its snap points |
@@ -288,14 +370,22 @@ origin, destination, mode
 - **Absolute scores are compressed by data sparsity.** Because canopy is under-mapped, absolute
   shade rarely exceeds 20%, which drags the absolute composite into the 50s even for genuinely
   pleasant routes. Better canopy data moves this number, not a change to the formula.
-- **No transit legs yet.** METRO bus and METRORail appear only as a CO₂ comparison line.
-  Routing an actual multimodal trip is the obvious next step.
+- **METRO times are scheduled, not live.** Transitous skips METRO's GTFS-Realtime feed because it
+  needs an API key, so a bus running ten minutes late still shows on time. The UI says so on every
+  transit result rather than implying a precision it does not have.
+- **No fares.** METRO's feed ships no fare products, so the app shows no fare figure and links to
+  METRO's own fare page instead of printing a number it cannot source.
 - Public OSRM and Overpass instances are rate-limited and occasionally unavailable; the bundled
   extract covers the inner loop so a live demo still works when they are.
 
 ## Data and attribution
 
-Routing by [OSRM](https://project-osrm.org/) via the FOSSGIS public instances. Map data
+Walking, cycling and driving routed by [OSRM](https://project-osrm.org/) via the FOSSGIS public
+instances. METRORail and METRO bus trips routed by [MOTIS](https://github.com/motis-project/motis)
+on the free public service run by [Transitous](https://transitous.org/), over
+[Houston METRO](https://www.ridemetro.org/)'s own GTFS feed
+([Transitland](https://www.transit.land/feeds/f-9vk-metropolitantransitauthorityofharriscounty)).
+Map data
 © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, queried through
 [Overpass](https://overpass-api.de/). Basemap tiles © [CARTO](https://carto.com/attributions).
 Emission factors from the US EPA (average light-duty vehicle, 404 g CO₂/mile) and FTA transit

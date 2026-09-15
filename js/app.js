@@ -8,6 +8,7 @@ import {
   DEFAULT_WEIGHTS,
   ROUTE_COLORS,
   IMPACT_SOURCES,
+  METRO_LINKS,
 } from './config.js';
 import { bboxOf, padBbox, haversine } from './geo.js';
 import { fetchBaseRoutes, fetchViaRoute, pickGreenViaPoints, dedupe } from './routing.js';
@@ -15,7 +16,15 @@ import { loadGreenLayer } from './greenspace.js';
 import { scoreRoutes, assignBadges, formatDistance, formatDuration } from './scoring.js';
 import { buildDirections, stepDistance } from './directions.js';
 import { assignStopsToSteps } from './water.js';
-import { renderProfile, PROFILE_SERIES, sampleAt, describeSample } from './profile.js';
+import { renderProfile, seriesFor, sampleAt, describeSample } from './profile.js';
+import {
+  planTransit,
+  VEHICLES,
+  formatClock,
+  formatDay,
+  houstonWallTimeToDate,
+  dateToHoustonWallTime,
+} from './transit.js';
 import { suggestPlaces, resolvePlace, describeCoordinate, locateMe } from './places.js';
 import { initSheet } from './sheet.js';
 
@@ -46,6 +55,7 @@ const state = {
   lines: [],
   markers: {},
   stepLayer: null,
+  stopLayer: null,
   labelLayer: null,
   basemap: 'streets',
   waterLayer: null,
@@ -53,7 +63,14 @@ const state = {
   busy: false,
   directionsOpen: true,
   sheet: null,
+  // Transit is the only mode where *when* changes the answer, so the time
+  // lives in state rather than being read off the clock at request time.
+  when: { kind: 'depart' },
+  queued: false,
+  transitNote: '',
 };
+
+const isTransit = () => state.mode === 'transit';
 
 /* ---------------------------------------------------------------- map --- */
 
@@ -173,6 +190,10 @@ function clearRouteLines() {
     map.removeLayer(state.stepLayer);
     state.stepLayer = null;
   }
+  if (state.stopLayer) {
+    map.removeLayer(state.stopLayer);
+    state.stopLayer = null;
+  }
 }
 
 /** Blue dots for every refill point on the selected route. */
@@ -217,6 +238,11 @@ function drawRoutes() {
     const route = state.routes[i];
     const isSelected = i === state.selected;
 
+    if (route.transit?.rides.length) {
+      drawTransitRoute(route, i, isSelected);
+      continue;
+    }
+
     const line = L.polyline(route.points, {
       color: route.color,
       weight: isSelected ? 6 : 4,
@@ -231,8 +257,102 @@ function drawRoutes() {
     state.lines.push(line);
   }
 
+  drawStops();
   drawWater();
   drawRouteLabels();
+}
+
+/**
+ * A transit trip is drawn leg by leg: each ride solid, in its own line colour
+ * from METRO's feed, and the walking dashed and grey. The distinction is the
+ * whole point of the picture — a solid twelve-mile red line that turns into
+ * two short dashes says "the train does almost all of this" faster than any
+ * number on the card can.
+ */
+function drawTransitRoute(route, index, isSelected) {
+  const dim = isSelected ? 1 : 0.4;
+  for (const leg of legGeometries(route)) {
+    const ride = leg.ride;
+    const line = L.polyline(leg.points, {
+      color: ride ? ride.color || route.color : '#64748b',
+      weight: ride ? (isSelected ? 6 : 4) : isSelected ? 4 : 3,
+      opacity: (ride ? 0.95 : 0.8) * dim,
+      dashArray: ride ? null : '2 7',
+      lineCap: ride ? 'round' : 'butt',
+      lineJoin: 'round',
+    })
+      .addTo(map)
+      .on('click', () => select(index));
+
+    if (ride) {
+      line.bindTooltip(
+        `${escapeHtml(ride.shortName)} ${escapeHtml(ride.longName)}` +
+          (ride.headsign ? `<br><small>toward ${escapeHtml(ride.headsign)}</small>` : ''),
+        { sticky: true },
+      );
+    }
+    state.lines.push(line);
+  }
+}
+
+/**
+ * A transit route's geometry split back into legs for drawing: one entry per
+ * ride, carrying that ride, and one per run of walking steps carrying none.
+ * The zero-length "get off here" steps are skipped — they mark a stop, not a
+ * stretch of line.
+ */
+function legGeometries(route) {
+  const legs = [];
+  for (const step of route.legs[0]?.steps || []) {
+    const points = (step.geometry?.coordinates || []).map(([lon, lat]) => [lat, lon]);
+    if (points.length < 2) continue;
+
+    const ride = step.mode === 'transit' ? step.transit : null;
+    // A new leg starts at every ride, and wherever walking and riding meet.
+    const current = legs[legs.length - 1];
+    if (!current || ride || Boolean(current.ride) !== Boolean(ride)) {
+      legs.push({ ride, points: [...points] });
+      continue;
+    }
+    current.points.push(...points.slice(1));
+  }
+  return legs;
+}
+
+/** Boarding and alighting points on the selected trip. */
+function drawStops() {
+  if (state.stopLayer) {
+    map.removeLayer(state.stopLayer);
+    state.stopLayer = null;
+  }
+  const route = state.routes[state.selected];
+  if (!route?.transit?.rides.length) return;
+
+  state.stopLayer = L.layerGroup().addTo(map);
+  for (const ride of route.transit.rides) {
+    for (const [role, stop, time] of [
+      ['board', ride.board, ride.board.departure],
+      ['alight', ride.alight, ride.alight.arrival],
+    ]) {
+      L.marker(stop.coord, {
+        icon: L.divIcon({
+          className: '',
+          html:
+            `<div class="stop-pin stop-${role}"` +
+            `${ride.color ? ` style="border-color:${ride.color}"` : ''}></div>`,
+          iconSize: [14, 14],
+          iconAnchor: [7, 7],
+        }),
+        zIndexOffset: 650,
+      })
+        .bindTooltip(
+          `<b>${escapeHtml(stop.name)}</b><br>${role === 'board' ? 'Board' : 'Get off'} ` +
+            `${escapeHtml(ride.shortName)} · ${formatClock(time)}`,
+          { direction: 'top' },
+        )
+        .addTo(state.stopLayer);
+    }
+  }
 }
 
 // A point `fraction` of the way along the line, used to hang the time pill
@@ -602,7 +722,14 @@ async function ensurePlace(role) {
 /* ----------------------------------------------------------- pipeline --- */
 
 async function compare() {
-  if (state.busy) return;
+  // A request arriving mid-run is not noise to be dropped — it is someone
+  // changing the departure time or the mode and expecting an answer. Remember
+  // it and re-run once the current comparison lets go.
+  if (state.busy) {
+    state.queued = true;
+    return;
+  }
+  state.queued = false;
   setBusy(true);
   setStatus('Finding your start and finish…');
 
@@ -614,23 +741,48 @@ async function compare() {
     const ceiling = MODES[state.mode].maxTripKm * 1000;
     if (straight > ceiling) {
       const suggestion = state.mode === 'foot' ? 'Bike or Drive' : 'Drive';
+      const tooFar = isTransit()
+        ? "further than METRO's network reaches"
+        : `too far to ${MODES[state.mode].label.toLowerCase()}`;
       setStatus(
-        `That is ${Math.round(straight / 1000)} km in a straight line — too far to ` +
-          `${MODES[state.mode].label.toLowerCase()}. Try ${suggestion}.`,
+        `That is ${Math.round(straight / 1000)} km in a straight line — ${tooFar}. ` +
+          `Try ${suggestion}.`,
         true,
       );
       return;
     }
 
-    setStatus('Asking the router for every sensible way there…');
-    let candidates = await fetchBaseRoutes(state.mode, origin.coord, destination.coord);
+    setStatus(
+      isTransit()
+        ? 'Asking METRO\u2019s timetable for the trips that work…'
+        : 'Asking the router for every sensible way there…',
+    );
+
+    let candidates;
+    if (isTransit()) {
+      candidates = await fetchTransitCandidates(origin, destination);
+    } else {
+      candidates = await fetchBaseRoutes(state.mode, origin.coord, destination.coord);
+    }
+
     let layer = null;
 
-    if (straight > 60000) {
+    // What to download the green layer over. On a transit trip the only part
+    // that has to be scored for shade is the walking, and a bbox drawn around
+    // a twelve-mile rail corridor is both a slow Overpass query and an
+    // answer about nothing. The walk to the stop is usually a few blocks.
+    const scored = candidates.flatMap((route) =>
+      route.transit?.walkPoints?.length ? route.transit.walkPoints : [route.points],
+    );
+    const span = isTransit()
+      ? Math.max(...candidates.map((r) => r.transit?.walkM ?? r.distance), 0)
+      : straight;
+
+    if (span > 60000) {
       setStatus('Trip is long — scoring on road type and directness only.');
     } else {
       setStatus('Downloading parks, bayous and tree canopy from OpenStreetMap…');
-      const bbox = padBbox(bboxOf(candidates.map((r) => r.points)), 2000);
+      const bbox = padBbox(bboxOf(scored), isTransit() ? 400 : 2000);
       try {
         layer = await loadGreenLayer(bbox);
       } catch {
@@ -638,7 +790,8 @@ async function compare() {
       }
     }
 
-    if (layer) {
+    // A bus route is not ours to reroute through a park.
+    if (layer && !isTransit()) {
       setStatus('Building greener alternatives through nearby parks…');
       const vias = pickGreenViaPoints(layer.areas, origin.coord, destination.coord, 3);
       const detours = await Promise.allSettled(
@@ -658,9 +811,14 @@ async function compare() {
       candidates = dedupe(candidates);
     }
 
-    // Drop absurd detours: nobody walks 3x as far for a nicer view.
-    const shortest = Math.min(...candidates.map((r) => r.distance));
-    candidates = candidates.filter((r) => r.distance <= shortest * 1.9).slice(0, 6);
+    // Drop absurd detours: nobody walks 3x as far for a nicer view. Transit
+    // options are already real timetabled trips, so the only thing worth
+    // trimming there is the length of the list.
+    if (!isTransit()) {
+      const shortest = Math.min(...candidates.map((r) => r.distance));
+      candidates = candidates.filter((r) => r.distance <= shortest * 1.9);
+    }
+    candidates = candidates.slice(0, 6);
 
     // Colour belongs to the route, and is assigned here exactly once.
     // Everything downstream reads route.color instead of its list index, so
@@ -668,8 +826,15 @@ async function compare() {
     // The label offset is pinned here too, so labels stay put on rerank
     // instead of sliding along their lines.
     const offsets = [0.5, 0.38, 0.62, 0.28, 0.72, 0.45];
+    const used = new Set();
     candidates.forEach((route, i) => {
-      route.color = ROUTE_COLORS[i % ROUTE_COLORS.length];
+      // A METRORail trip drawn in anything but red is a worse map. The line
+      // colour comes out of METRO's feed (`route_color`), so the Red Line is
+      // red because METRO says it is — but two candidates sharing a colour
+      // would be unreadable, so a clash falls back to the palette.
+      const own = route.transit?.rides[0]?.color;
+      route.color = own && !used.has(own) ? own : ROUTE_COLORS[i % ROUTE_COLORS.length];
+      used.add(route.color);
       route.labelAt = offsets[i % offsets.length];
     });
 
@@ -678,7 +843,7 @@ async function compare() {
     state.selected = 0;
     rescore({ fit: true });
 
-    setStatus(describeRun(candidates.length, layer));
+    setStatus(isTransit() ? describeTransitRun(candidates, layer) : describeRun(candidates.length, layer));
 
     // On a phone the results are inside the sheet, so bring it up far enough
     // to show them rather than leaving the answer hidden below the fold.
@@ -690,7 +855,69 @@ async function compare() {
     setStatus(err.message || 'Something went wrong. Try again.', true);
   } finally {
     setBusy(false);
+    if (state.queued) compare();
   }
+}
+
+/** The instant the trip should be planned around, from the When? controls. */
+function departureTime() {
+  const value = el('when-time').value;
+  return value ? houstonWallTimeToDate(value) : new Date();
+}
+
+/**
+ * Ask METRO's timetable for the trips that work, and turn them into
+ * candidates the rest of the pipeline can score.
+ *
+ * The walk-only fallback is not a consolation prize: MOTIS will not return a
+ * transit option slower than simply walking, so on a short trip an empty list
+ * plus "it is quicker to walk" is the true answer, and the one worth giving.
+ */
+async function fetchTransitCandidates(origin, destination) {
+  const when = departureTime();
+  const arriveBy = state.when.kind === 'arrive';
+  const { routes, walkOnly } = await planTransit(origin.coord, destination.coord, {
+    when,
+    arriveBy,
+  });
+
+  state.transitNote = '';
+  const candidates = [...routes];
+
+  if (walkOnly) {
+    // Only worth offering when it is a walk a person would actually make.
+    if (walkOnly.distance < 3500) candidates.push(walkOnly);
+    if (!routes.length) {
+      state.transitNote =
+        'No scheduled METRO trip beats walking this one, so the walk is the answer.';
+    }
+  }
+
+  if (!candidates.length) {
+    throw new Error(
+      `No METRO trip found between those points ${
+        arriveBy ? 'arriving by' : 'leaving around'
+      } ${formatClock(when)} on ${formatDay(when)}. Try another time, or a point closer to a stop.`,
+    );
+  }
+  return candidates;
+}
+
+function describeTransitRun(candidates, layer) {
+  const rides = candidates.filter((route) => route.transit?.rides.length);
+  const numbers = [
+    ...new Set(rides.flatMap((route) => route.transit.rides.map((ride) => ride.shortName))),
+  ].filter(Boolean);
+
+  const head = rides.length
+    ? `${rides.length} METRO trip${rides.length === 1 ? '' : 's'} on the published timetable` +
+      (numbers.length ? ` — route${numbers.length === 1 ? '' : 's'} ${numbers.join(', ')}` : '')
+    : 'No METRO trip on the timetable for that time';
+
+  const walking = layer
+    ? ', scored on the walking legs against OpenStreetMap parks and canopy'
+    : '';
+  return `${head}${walking}.${state.transitNote ? ` ${state.transitNote}` : ''}`;
 }
 
 /**
@@ -750,6 +977,7 @@ function rescore({ fit = false } = {}) {
   state.selected = Math.min(state.selected, scored.length - 1);
 
   renderRoutes();
+  renderTransit();
   renderDirections();
   renderRouteProfile();
   renderWater();
@@ -768,6 +996,16 @@ function nameRoutes(routes) {
   let plain = 0;
   let detour = 0;
   for (const route of routes) {
+    // A transit trip names itself: the route numbers are the name, which is
+    // also what a rider has to remember. "Route B" would be a worse label
+    // than the one METRO already prints on the side of the bus.
+    if (route.transit) {
+      const rides = route.transit.rides;
+      route.name = rides.length
+        ? rides.map((ride) => ride.shortName || ride.longName).join(' → ')
+        : 'Walk the whole way';
+      continue;
+    }
     if (route.source.startsWith('via ')) {
       route.name = route.source.replace(/^via /, 'Via ');
     } else if (route.source === 'green detour') {
@@ -784,6 +1022,7 @@ function select(index, { focus = true } = {}) {
   state.selected = index;
   state.activeStep = null;
   renderRoutes();
+  renderTransit();
   renderDirections();
   renderRouteProfile();
   renderWater();
@@ -806,19 +1045,53 @@ function bar(label, value) {
     </div>`;
 }
 
+/**
+ * The trip as a row of chips: walk, then each route number in its own line
+ * colour, then walk. It is the one part of a transit result people read
+ * before anything else — "is this the train or two buses?" — so it sits at
+ * the top of the card, above the score.
+ */
+function legStrip(route) {
+  if (!route.transit) return '';
+  const chips = route.transit.legs.map((leg) => {
+    if (leg.kind === 'walk') {
+      return `<span class="leg leg-walk">🚶 ${stepDistance(leg.distance)}</span>`;
+    }
+    const ride = leg.ride;
+    const vehicle = VEHICLES[ride.vehicle] || VEHICLES.bus;
+    const style = ride.color
+      ? ` style="background:${ride.color};color:${ride.textColor || '#fff'};border-color:${ride.color}"`
+      : '';
+    return (
+      `<span class="leg leg-ride"${style} title="${escapeHtml(ride.longName)}">` +
+      `${vehicle.icon} ${escapeHtml(ride.shortName || ride.longName)}</span>`
+    );
+  });
+  return `<div class="legs">${chips.join('<span class="leg-join">›</span>')}</div>`;
+}
+
 function renderRoutes() {
   el('results-card').hidden = state.routes.length === 0;
 
   el('routes').innerHTML = state.routes
     .map((route, i) => {
       const m = route.metrics;
+      // On a walk or a ride, extra distance is the cost. On a bus it is not —
+      // the rider is sitting down either way — so a transit trip is flagged
+      // for the minutes it costs against the quickest option instead.
+      const quickest = Math.min(...state.routes.map((r) => r.duration));
+      const slowerMin = Math.round((route.duration - quickest) / 60);
+      const penalty = route.transit
+        ? slowerMin >= 5
+          ? [`<span class="badge warn">+${slowerMin} min slower</span>`]
+          : []
+        : m.detourPct > 12
+          ? [`<span class="badge warn">+${Math.round(m.detourPct)}% longer</span>`]
+          : [];
+
       const badges = route.badges
         .map((b) => `<span class="badge">${b.label}</span>`)
-        .concat(
-          m.detourPct > 12
-            ? [`<span class="badge warn">+${Math.round(m.detourPct)}% longer</span>`]
-            : [],
-        )
+        .concat(penalty)
         .join('');
 
       return `
@@ -831,13 +1104,18 @@ function renderRoutes() {
             <span class="route-score"><b>${Math.round(route.pleasantness)}</b>/100</span>
           </div>
           <div class="route-sub">
-            ${formatDuration(route.duration)} · ${formatDistance(route.distance)} ·
+            ${
+              route.transit?.rides.length
+                ? `${formatClock(route.transit.startTime)} → ${formatClock(route.transit.endTime)} · `
+                : ''
+            }${formatDuration(route.duration)} · ${formatDistance(route.distance)} ·
             ${m.co2Kg < 0.05 ? 'zero tailpipe CO₂' : `${m.co2Kg.toFixed(1)} kg CO₂`}
           </div>
+          ${legStrip(route)}
           <div class="badges">${badges}</div>
           <div class="bars">
-            ${bar('Green', m.greenShare)}
-            ${bar('Shade', m.shadeShare)}
+            ${bar(route.transit ? 'Green on foot' : 'Green', m.greenShare)}
+            ${bar(route.transit ? 'Shade on foot' : 'Shade', m.shadeShare)}
             ${bar('Calm', 1 - m.bigRoadShare)}
           </div>
         </div>`;
@@ -865,17 +1143,34 @@ function renderDetail() {
 
   const m = route.metrics;
   const mode = MODES[state.mode];
-  const heatCard = mode.heatExposed
+  const t = route.transit;
+
+  // The headline number for a transit trip is not how long it takes, it is how
+  // long it leaves you outside: the walk to the stop plus the wait at it.
+  // Twelve air-conditioned miles on the Red Line cost nothing in heat.
+  const heatCard = t
     ? stat(
-        'Unshaded time',
+        'Unshaded outdoors',
         `${Math.round(m.exposedMinutes)} min`,
-        `${Math.round(m.shadeShare * 100)}% of this route has mapped canopy`,
+        `of ${Math.round(m.outdoorMinutes)} min walking and waiting — the ride is indoors`,
       )
-    : stat('In traffic', formatDuration(route.duration), 'Air-conditioned, but still emitting');
+    : mode.heatExposed
+      ? stat(
+          'Unshaded time',
+          `${Math.round(m.exposedMinutes)} min`,
+          `${Math.round(m.shadeShare * 100)}% of this route has mapped canopy`,
+        )
+      : stat('In traffic', formatDuration(route.duration), 'Air-conditioned, but still emitting');
 
   const carbon =
-    mode.co2PerKm < MODES.car.co2PerKm
-      ? stat('CO₂ avoided', `${m.co2SavedVsDrivingKg.toFixed(2)} kg`, 'vs. driving the same trip solo')
+    m.co2Kg < (MODES.car.co2PerKm * m.km) / 1000
+      ? stat(
+          'CO₂ avoided',
+          `${m.co2SavedVsDrivingKg.toFixed(2)} kg`,
+          t?.rides.length
+            ? `vs. driving solo — this trip emits ${m.co2Kg.toFixed(2)} kg`
+            : 'vs. driving the same trip solo',
+        )
       : stat('CO₂ emitted', `${m.co2Kg.toFixed(2)} kg`, `${m.transitCo2Kg.toFixed(2)} kg by METRO bus`);
 
   el('impact-sources').innerHTML = IMPACT_SOURCES.map(
@@ -896,19 +1191,113 @@ function renderDetail() {
           : stat('Beside green space', `${Math.round(m.greenShare * 100)}%`, 'parks, bayous, tree cover')
       }
       ${
-        mode.kcalPerKm
-          ? stat('Energy burned', `${Math.round(m.kcal)} kcal`, `${m.turns} turns to remember`)
-          : stat('Trip cost', `$${m.cost.toFixed(2)}`, 'fuel, wear, and depreciation')
+        t?.rides.length
+          ? stat(
+              'Transfers',
+              String(t.transfers),
+              `${Math.round(t.waitSec / 60)} min waiting at stops`,
+            )
+          : mode.kcalPerKm
+            ? stat('Energy burned', `${Math.round(m.kcal)} kcal`, `${m.turns} turns to remember`)
+            : stat('Trip cost', `$${m.cost.toFixed(2)}`, 'fuel, wear, and depreciation')
       }
     </div>
     <p class="hint" style="margin:12px 0 0">
-      ${Math.round(m.bigRoadShare * 100)}% of this route runs along a freeway or major arterial.
       ${
-        m.detourPct > 1
-          ? `It is ${Math.round(m.detourPct)}% longer than the shortest option.`
-          : 'It is also the shortest option available.'
+        t
+          ? `${Math.round(m.bigRoadShare * 100)}% of the walking on this trip runs beside a ` +
+            `freeway or major arterial, and you burn about ${Math.round(m.kcal)} kcal getting ` +
+            `to and from the stops. Riding is not scored: green space, shade and traffic all ` +
+            `stop mattering once the doors close.`
+          : `${Math.round(m.bigRoadShare * 100)}% of this route runs along a freeway or major arterial. ` +
+            (m.detourPct > 1
+              ? `It is ${Math.round(m.detourPct)}% longer than the shortest option.`
+              : 'It is also the shortest option available.')
       }
     </p>`;
+}
+
+/* ----------------------------------------------------------- transit --- */
+
+/**
+ * The METRO card: what to catch, from where, at what time.
+ *
+ * Everything here is quoted from METRO's feed rather than composed — the route
+ * number, the route name, the headsign, the stop name, the stop code, the
+ * number of stops, the departure and arrival times. Where the feed has nothing
+ * to say, this card links to METRO instead of guessing: the feed ships no fare
+ * products, so there is no fare figure anywhere in this app.
+ */
+function renderTransit() {
+  const route = state.routes[state.selected];
+  const card = el('transit-card');
+  card.hidden = !route?.transit;
+  if (card.hidden) return;
+
+  const t = route.transit;
+  const rides = t.rides;
+
+  el('transit-title').textContent = rides.length
+    ? `METRO trip · ${route.name}`
+    : 'On foot the whole way';
+
+  if (!rides.length) {
+    el('transit-summary').textContent =
+      'No scheduled METRO trip is faster than walking this, so there is nothing to catch.';
+    el('transit-legs').innerHTML = '';
+    el('transit-sources').innerHTML = '';
+    return;
+  }
+
+  const wait = Math.round(t.waitSec / 60);
+  el('transit-summary').innerHTML =
+    `Leave ${formatClock(t.startTime)}, arrive ${formatClock(t.endTime)} on ` +
+    `${escapeHtml(formatDay(t.startTime))} · ${t.transfers} transfer${t.transfers === 1 ? '' : 's'} · ` +
+    `${formatDistance(t.walkM)} on foot${wait ? `, ${wait} min waiting` : ''}. ` +
+    `<b>Scheduled times</b>, not live arrivals.`;
+
+  el('transit-legs').innerHTML = rides
+    .map((ride) => {
+      const vehicle = VEHICLES[ride.vehicle] || VEHICLES.bus;
+      const swatch = ride.color
+        ? ` style="background:${ride.color};color:${ride.textColor || '#fff'}"`
+        : '';
+      const stops = `${ride.stopCount} stop${ride.stopCount === 1 ? '' : 's'}`;
+      const schedule = ride.scheduleUrl
+        ? ` · <a href="${escapeHtml(ride.scheduleUrl)}" target="_blank" rel="noopener">timetable</a>`
+        : '';
+      return `
+        <div class="ride">
+          <div class="ride-head">
+            <span class="ride-badge"${swatch}>${vehicle.icon} ${escapeHtml(ride.shortName)}</span>
+            <span class="ride-name">${escapeHtml(ride.longName)}</span>
+          </div>
+          ${ride.headsign ? `<div class="ride-toward">toward ${escapeHtml(ride.headsign)}</div>` : ''}
+          <div class="ride-stop">
+            <b>${formatClock(ride.board.departure)}</b>
+            <span>Board at ${escapeHtml(ride.board.name)}${
+              ride.board.code ? ` <span class="stop-code">#${escapeHtml(ride.board.code)}</span>` : ''
+            }</span>
+          </div>
+          <div class="ride-ride">${stops} · ${formatDuration(ride.duration)}${
+            ride.waitSec > 60 ? ` · ${Math.round(ride.waitSec / 60)} min wait before boarding` : ''
+          }${ride.wheelchair ? ' · ♿ accessible' : ''}${schedule}</div>
+          <div class="ride-stop">
+            <b>${formatClock(ride.alight.arrival)}</b>
+            <span>Get off at ${escapeHtml(ride.alight.name)}${
+              ride.alight.code ? ` <span class="stop-code">#${escapeHtml(ride.alight.code)}</span>` : ''
+            }</span>
+          </div>
+        </div>`;
+    })
+    .join('');
+
+  el('transit-sources').innerHTML =
+    `Route numbers, stops and times read live from ` +
+    `<a href="${METRO_LINKS.feed}" target="_blank" rel="noopener">METRO's GTFS feed</a>, ` +
+    `routed by <a href="${METRO_LINKS.router}" target="_blank" rel="noopener">Transitous</a>. ` +
+    `Fares are not in the feed — see ` +
+    `<a href="${t.fareUrl || METRO_LINKS.fares}" target="_blank" rel="noopener">METRO fares</a>.`;
 }
 
 /* -------------------------------------------------------- directions --- */
@@ -925,8 +1314,13 @@ function renderDirections() {
     state.places.destination?.label,
   );
 
-  // Which instruction is each refill point nearest to?
-  const waterByStep = assignStopsToSteps(route.water?.stops || [], state.directions);
+  // Which instruction is each refill point nearest to? Only walking steps are
+  // candidates — a fountain does not belong on "board the 700", and the ride's
+  // geometry is long enough to win the nearest-point test from across town.
+  const waterByStep = assignStopsToSteps(
+    route.water?.stops || [],
+    state.directions.filter((step) => !step.transit),
+  );
 
   el('directions-title').textContent = `Directions · ${route.name}`;
   el('directions-summary').textContent =
@@ -944,7 +1338,20 @@ function renderDirections() {
       if (step.shadeShare > 0.5) chips.push('<span class="chip chip-shade">shaded</span>');
       if (step.greenShare > 0.6) chips.push('<span class="chip chip-green">green</span>');
 
+      // A transit step's own meta line is the stop, the clock and the stop
+      // count — all of it straight from the feed.
+      const ride = step.transit;
+      const transitMeta = !ride
+        ? ''
+        : ride.kind === 'alight'
+          ? `${formatClock(ride.alight.arrival)}${
+              ride.alight.code ? ` · stop #${escapeHtml(ride.alight.code)}` : ''
+            }`
+          : `${escapeHtml(ride.board.name)} · ${formatClock(ride.board.departure)} · ` +
+            `${ride.stopCount} stop${ride.stopCount === 1 ? '' : 's'}`;
+
       const meta = [
+        transitMeta,
         step.road && !step.isArrival ? escapeHtml(step.road) : '',
         chips.join(' '),
       ]
@@ -952,14 +1359,20 @@ function renderDirections() {
         .join(' · ');
 
       return `
-        <li class="dir-step ${step.index === state.activeStep ? 'is-active' : ''}"
-            data-index="${step.index}">
+        <li class="dir-step ${step.index === state.activeStep ? 'is-active' : ''}
+            ${step.transit ? 'is-transit' : ''}" data-index="${step.index}">
           <span class="dir-arrow">${step.arrow}</span>
           <span>
             <span class="dir-text">${escapeHtml(step.instruction)}</span>
             ${meta ? `<span class="dir-meta">${meta}</span>` : ''}
           </span>
-          <span class="dir-dist">${step.isArrival ? '' : stepDistance(step.distance)}</span>
+          <span class="dir-dist">${
+            step.isArrival || step.transit?.kind === 'alight'
+              ? ''
+              : step.transit
+                ? formatDuration(step.duration)
+                : stepDistance(step.distance)
+          }</span>
         </li>`;
     })
     .join('');
@@ -1064,6 +1477,46 @@ function focusWater(index) {
   map.flyTo(offsetForVisibleArea(stop.coord), Math.max(map.getZoom(), 17), { duration: 0.5 });
 }
 
+/**
+ * The When? row, which only exists for transit: it is the one mode where the
+ * answer changes with the clock. Times are Houston's, whatever the browser's
+ * own zone is.
+ */
+function setupWhenControls() {
+  const field = el('when-field');
+  const time = el('when-time');
+  const kind = el('when-kind');
+
+  const reset = () => {
+    time.value = dateToHoustonWallTime(new Date());
+  };
+  reset();
+
+  const rerun = () => {
+    if (isTransit() && state.places.origin && state.places.destination) compare();
+  };
+
+  kind.addEventListener('change', () => {
+    state.when.kind = kind.value;
+    rerun();
+  });
+  time.addEventListener('change', rerun);
+  el('when-now').addEventListener('click', () => {
+    reset();
+    rerun();
+  });
+
+  return {
+    show(visible) {
+      field.hidden = !visible;
+      // A stale "leave at" from ten minutes ago plans the wrong trip.
+      if (visible && new Date(houstonWallTimeToDate(time.value)) < Date.now() - 60 * 60 * 1000) {
+        reset();
+      }
+    },
+  };
+}
+
 function setWeightsOpen(open) {
   el('weights-body').hidden = !open;
   el('weights-toggle').setAttribute('aria-expanded', String(open));
@@ -1080,15 +1533,18 @@ function renderRouteProfile() {
   el('profile-title').textContent = `Route profile · ${route.name}`;
   el('profile').innerHTML = renderProfile(route, {
     water: route.water?.stops || [],
-    turns: state.directions.filter((step) => !step.isArrival),
+    turns: state.directions.filter((step) => !step.isArrival && !step.transit),
   });
 
   const m = route.metrics;
   el('profile-summary').textContent =
     `${Math.round(m.greenShare * 100)}% green · ${Math.round(m.shadeShare * 100)}% shaded · ` +
-    `${Math.round(m.bigRoadShare * 100)}% beside traffic, sampled every 75 m`;
+    `${Math.round(m.bigRoadShare * 100)}% beside traffic, sampled every 75 m` +
+    // Said out loud, because the three percentages above are averages over a
+    // different denominator on a transit trip than on a walk.
+    (route.profile?.hasRide ? ' — measured over the walking legs only' : '');
 
-  el('profile-legend').innerHTML = PROFILE_SERIES.map(
+  el('profile-legend').innerHTML = seriesFor(route).map(
     (series) =>
       `<span class="profile-key" title="${series.description}">` +
       `<i style="background:${series.color}"></i>${series.label}</span>`,
@@ -1238,6 +1694,8 @@ function init() {
   createCombo('origin', 'origin-input', 'origin-suggestions');
   createCombo('destination', 'dest-input', 'dest-suggestions');
 
+  const when = setupWhenControls();
+
   el('mode-row').addEventListener('click', (event) => {
     const button = event.target.closest('.mode');
     if (!button) return;
@@ -1245,6 +1703,7 @@ function init() {
     el('mode-row')
       .querySelectorAll('.mode')
       .forEach((b) => b.classList.toggle('is-active', b === button));
+    when.show(isTransit());
     // Mode changes the road network, so the routes have to be re-fetched.
     if (state.rawRoutes?.length) compare();
   });
@@ -1353,7 +1812,10 @@ function init() {
       }, 320),
   });
   updatePeek();
-  setStatus('Hit Compare for Rice → Hermann Park, or search anywhere in Texas.');
+  setStatus(
+    'Hit Compare for Rice → Hermann Park, or search anywhere in Texas. ' +
+      'Pick 🚌 METRO for real METRORail and bus trips.',
+  );
 }
 
 init();
