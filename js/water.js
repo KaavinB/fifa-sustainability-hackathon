@@ -12,12 +12,24 @@ export const WATER_BUFFER_M = 120;
 
 /**
  * Match water points to a route.
+ *
  * Returns { stops, longestDryM, coverage } where each stop carries how far
  * along the route it sits and how far off the line it is.
+ *
+ * `onFoot`, when given, is a list of [startM, endM] stretches of the route
+ * that are walked — which on a transit trip is the walk to the stop and the
+ * walk from it, and not the twelve miles in between. Without it a Red Line
+ * trip would claim every fountain the train goes past as a refill point, and
+ * report a dry stretch measured in rail miles nobody is thirsty on.
  */
-export function waterAlongRoute(points, water, buffer = WATER_BUFFER_M) {
+export function waterAlongRoute(points, water, buffer = WATER_BUFFER_M, { onFoot = null } = {}) {
+  const walkable = onFoot?.length ? onFoot : null;
+  const walkableLength = walkable
+    ? walkable.reduce((sum, [from, to]) => sum + Math.max(0, to - from), 0)
+    : null;
+
   if (!water?.length || points.length < 2) {
-    return { stops: [], longestDryM: totalLength(points), coverage: 0 };
+    return { stops: [], longestDryM: walkableLength ?? totalLength(points), coverage: 0 };
   }
 
   const proj = projector(points[0][0]);
@@ -57,24 +69,40 @@ export function waterAlongRoute(points, water, buffer = WATER_BUFFER_M) {
 
   stops.sort((a, b) => a.distanceFromStart - b.distanceFromStart);
 
+  const walked = walkable
+    ? stops.filter((stop) =>
+        walkable.some(([from, to]) => stop.distanceFromStart >= from && stop.distanceFromStart <= to),
+      )
+    : stops;
+  stops.length = 0;
+  stops.push(...walked);
+
   // Drop near-duplicates: a park often maps several fountains a few metres apart.
   const deduped = stops.filter(
     (stop, i) => i === 0 || stop.distanceFromStart - stops[i - 1].distanceFromStart > 40,
   );
 
+  // The longest dry stretch is measured stretch by stretch when only part of
+  // the route is walked, so the ride between two walks is never counted as a
+  // gap between fountains.
+  const spans = walkable ?? [[0, total]];
   let longestDryM = 0;
-  let previous = 0;
-  for (const stop of deduped) {
-    longestDryM = Math.max(longestDryM, stop.distanceFromStart - previous);
-    previous = stop.distanceFromStart;
+  for (const [from, to] of spans) {
+    let previous = from;
+    for (const stop of deduped) {
+      if (stop.distanceFromStart < from || stop.distanceFromStart > to) continue;
+      longestDryM = Math.max(longestDryM, stop.distanceFromStart - previous);
+      previous = stop.distanceFromStart;
+    }
+    longestDryM = Math.max(longestDryM, to - previous);
   }
-  longestDryM = Math.max(longestDryM, total - previous);
 
+  const measured = walkableLength ?? total;
   return {
     stops: deduped,
     longestDryM,
     // Share of the route within reach of a refill, at 400 m either side.
-    coverage: total > 0 ? Math.min(1, (deduped.length * 800) / total) : 0,
+    coverage: measured > 0 ? Math.min(1, (deduped.length * 800) / measured) : 0,
   };
 }
 

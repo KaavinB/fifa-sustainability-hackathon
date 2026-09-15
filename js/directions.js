@@ -7,6 +7,7 @@
 
 import { pathGreenMetrics, isBigRoad } from './scoring.js';
 import { MODES } from './config.js';
+import { VEHICLES } from './transit.js';
 
 const TURN_WORD = {
   left: 'Turn left',
@@ -30,6 +31,8 @@ const ARROW = {
   uturn: '↩',
   depart: '●',
   arrive: '◎',
+  board: '🚌',
+  alight: '◉',
   roundabout: '↻',
   merge: '⤵',
   fork: '⑂',
@@ -60,8 +63,31 @@ function onto(step, mode) {
   return step.name || step.ref ? ` onto ${roadName(step, mode)}` : '';
 }
 
+/**
+ * Boarding and getting off, in the words the rider needs.
+ *
+ * Everything quoted here — the route number, the route name, the headsign on
+ * the front of the vehicle, the stop name — is passed straight through from
+ * METRO's feed. The sentence around it is the only part this app writes.
+ */
+function transitInstruction(step) {
+  const ride = step.transit;
+  const vehicle = VEHICLES[ride.vehicle] || VEHICLES.bus;
+
+  if (ride.kind === 'alight') {
+    return `Get off at ${ride.alight.name}`;
+  }
+
+  // "700 METRORAIL RED LINE", "027 Shepherd" — the number first, because that
+  // is what is lit up on the front of the vehicle.
+  const named = [ride.shortName, ride.longName].filter(Boolean).join(' ') || vehicle.noun;
+  const toward = ride.headsign ? ` toward ${ride.headsign}` : '';
+  return `Board ${named}${toward}`;
+}
+
 /** One human sentence for an OSRM step. */
 export function instructionFor(step, mode, destinationLabel) {
+  if (step.mode === 'transit') return transitInstruction(step);
   const { type, modifier, exit } = step.maneuver;
   const named = Boolean(step.name || step.ref);
   const road = roadName(step, mode);
@@ -69,6 +95,7 @@ export function instructionFor(step, mode, destinationLabel) {
 
   switch (type) {
     case 'depart':
+      if (step.walkTo) return `${verb} to ${step.walkTo}`;
       return named ? `${verb} on ${road}` : `${verb} along the path`;
 
     case 'arrive': {
@@ -117,6 +144,11 @@ export function instructionFor(step, mode, destinationLabel) {
 }
 
 function arrowFor(step) {
+  if (step.mode === 'transit') {
+    return step.transit.kind === 'alight'
+      ? ARROW.alight
+      : (VEHICLES[step.transit.vehicle] || VEHICLES.bus).icon;
+  }
   const { type, modifier } = step.maneuver;
   if (type === 'depart' || type === 'arrive') return ARROW[type];
   if (type === 'roundabout' || type === 'rotary') return ARROW.roundabout;
@@ -146,7 +178,15 @@ export function buildDirections(route, layer, mode, destinationLabel, { mergeUnd
   for (const step of raw) {
     const type = step.maneuver.type;
     const last = merged[merged.length - 1];
-    const keep = type === 'depart' || type === 'arrive';
+    // Boarding and alighting are never noise, however short: a zero-metre
+    // "get off here" is the single most important line in a transit trip.
+    // Nor may a walking step be folded into a ride — "turn right" cannot
+    // absorb twelve miles of rail.
+    const keep = type === 'depart' || type === 'arrive' || step.mode === 'transit';
+    if (last?.raw.mode === 'transit' && step.mode !== 'transit') {
+      merged.push({ raw: step, distance: step.distance, duration: step.duration, points: stepPoints(step) });
+      continue;
+    }
 
     // Two kinds of noise worth folding away: steps too short to act on, and
     // "continue" steps that just restate the road you are already on.
@@ -174,7 +214,11 @@ export function buildDirections(route, layer, mode, destinationLabel, { mergeUnd
   let cumulative = 0;
   return merged.map((entry, index) => {
     const step = entry.raw;
-    const green = pathGreenMetrics(entry.points, layer, 20);
+    // No point measuring canopy over a stretch spent inside a vehicle.
+    const green =
+      step.mode === 'transit'
+        ? { greenShare: 0, shadeShare: 0 }
+        : pathGreenMetrics(entry.points, layer, 20);
     const start = cumulative;
     cumulative += entry.distance;
 
@@ -182,9 +226,10 @@ export function buildDirections(route, layer, mode, destinationLabel, { mergeUnd
       index,
       instruction: instructionFor(step, mode, destinationLabel),
       arrow: arrowFor(step),
+      transit: step.transit || null,
       // Only a real street name belongs in the meta line — the generic
       // "the path" fallback already appears in the instruction itself.
-      road: step.name || step.ref || '',
+      road: step.mode === 'transit' ? '' : step.name || step.ref || '',
       distance: entry.distance,
       duration: entry.duration,
       distanceFromStart: start,
@@ -192,7 +237,7 @@ export function buildDirections(route, layer, mode, destinationLabel, { mergeUnd
       points: entry.points,
       shadeShare: green.shadeShare,
       greenShare: green.greenShare,
-      bigRoad: isBigRoad(step.name || '', step.ref || ''),
+      bigRoad: step.mode !== 'transit' && isBigRoad(step.name || '', step.ref || ''),
       isArrival: step.maneuver.type === 'arrive',
     };
   });

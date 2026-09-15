@@ -134,6 +134,44 @@ input[type="text"],
   gap: 6px;
 }
 
+/* Four modes do not fit one row at panel width without the labels shrinking
+   to the point of being unreadable, so they wrap into two rows on narrow
+   panels and sit in one on wide ones. */
+.mode-row-4 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+@media (min-width: 420px) {
+  .mode-row-4 {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.when-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.when-row select,
+.when-row input {
+  padding: 8px 7px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  font: inherit;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.when-row select:focus,
+.when-row input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: transparent;
+}
+
 .mode {
   padding: 9px 4px;
   border: 1px solid var(--line);
@@ -302,6 +340,120 @@ input[type="text"],
   margin-top: 9px;
   display: grid;
   gap: 4px;
+}
+
+/* ------------------------------------------------------------- transit --- */
+
+/* The trip at a glance: walk › 700 › walk. Read before the score is. */
+.legs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 8px 0 2px;
+}
+
+.leg {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.leg-walk {
+  color: var(--muted);
+  background: #fff;
+}
+
+/* A route number with no colour in the feed still has to look like a route
+   number, so the neutral treatment is the fallback rather than nothing. */
+.leg-ride {
+  background: #334155;
+  border-color: #334155;
+  color: #fff;
+}
+
+.leg-join {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.ride {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 11px;
+  margin-bottom: 8px;
+}
+
+.ride:last-child {
+  margin-bottom: 0;
+}
+
+.ride-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.ride-badge {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: #334155;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+.ride-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ride-toward,
+.ride-ride {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+.ride-stop {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  gap: 8px;
+  font-size: 12.5px;
+  margin-top: 6px;
+  align-items: baseline;
+}
+
+.ride-stop b {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.stop-code {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Boarding and alighting points on the map. Hollow, so the line colour reads
+   through them and it is obvious which line the stop belongs to. */
+.stop-pin {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid #334155;
+  box-shadow: 0 1px 4px rgba(16, 32, 24, 0.4);
+}
+
+.stop-alight {
+  background: #334155;
+  box-shadow: 0 0 0 2px #fff, 0 1px 4px rgba(16, 32, 24, 0.4);
 }
 
 .bar {
@@ -776,6 +928,19 @@ input[type="text"],
 .chip-water {
   background: #e0f0fb;
   color: #075985;
+}
+
+/* Boarding is the instruction in a transit trip you cannot afford to skim. */
+.dir-step.is-transit {
+  background: #f4f6f9;
+}
+
+.dir-step.is-transit .dir-text {
+  font-weight: 600;
+}
+
+.dir-step.is-transit .dir-arrow {
+  font-size: 14px;
 }
 
 .water-pin {

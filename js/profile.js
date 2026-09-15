@@ -21,6 +21,25 @@ export const PROFILE_SERIES = [
   { key: 'busy', label: 'Busy', color: '#b45309', description: 'along a freeway, tollway or feeder' },
 ];
 
+// Only drawn for a trip that has a ride in it. Slate reads as "not one of the
+// three things being scored", which is exactly what it is: the stretch where
+// green, shade and traffic all stop applying because you are inside a bus.
+const RIDING = {
+  key: 'ride',
+  label: 'Riding',
+  color: '#475569',
+  description: 'on board a METRO bus or train — out of the sun, and not scored',
+};
+
+/**
+ * The rows to draw for one route. A walk has three; a transit trip has a
+ * fourth showing where it is on board, because without it the profile reads as
+ * twelve miles of unshaded pavement.
+ */
+export function seriesFor(route) {
+  return route?.profile?.hasRide ? [...PROFILE_SERIES, RIDING] : PROFILE_SERIES;
+}
+
 const W = 320; // internal coordinate width; the SVG scales to its container
 const LABEL_W = 40;
 const ROW_H = 13;
@@ -29,7 +48,7 @@ const TOP = 14; // room for water markers
 const AXIS_H = 16;
 
 const plotWidth = W - LABEL_W - 6;
-const chartHeight = TOP + PROFILE_SERIES.length * (ROW_H + ROW_GAP) + AXIS_H;
+const heightFor = (rows) => TOP + rows * (ROW_H + ROW_GAP) + AXIS_H;
 
 const escape = (text) =>
   String(text).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -59,8 +78,10 @@ export function renderProfile(route, { water = [], turns = [] } = {}) {
 
   const { distances, total } = profile;
   const x = (fraction) => LABEL_W + fraction * plotWidth;
+  const bands = seriesFor(route);
+  const chartHeight = heightFor(bands.length);
 
-  const rows = PROFILE_SERIES.map((series, index) => {
+  const rows = bands.map((series, index) => {
     const y = TOP + index * (ROW_H + ROW_GAP);
     const bars = runs(profile[series.key], distances, total)
       .map(
@@ -86,7 +107,7 @@ export function renderProfile(route, { water = [], turns = [] } = {}) {
     })
     .join('');
 
-  const turnY = TOP + PROFILE_SERIES.length * (ROW_H + ROW_GAP) - ROW_GAP + 2;
+  const turnY = TOP + bands.length * (ROW_H + ROW_GAP) - ROW_GAP + 2;
   const turnMarks = turns
     .map((turn) => {
       const cx = x(Math.min(1, turn.distanceFromStart / total));
@@ -126,7 +147,8 @@ export function sampleAt(profile, fraction) {
 
 /** Legend text for one point on the route, used by the hover tooltip. */
 export function describeSample(profile, index) {
-  const active = PROFILE_SERIES.filter((series) => profile[series.key][index]);
+  const rows = profile.hasRide ? [...PROFILE_SERIES, RIDING] : PROFILE_SERIES;
+  const active = rows.filter((series) => profile[series.key]?.[index]);
   return {
     distance: formatDistance(profile.distances[index]),
     parts: active.length

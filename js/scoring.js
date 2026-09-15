@@ -9,7 +9,7 @@ import {
 } from './config.js';
 import { samplePath, haversine, pointSegmentDistance } from './geo.js';
 import { insideGreen } from './greenspace.js';
-import { waterAlongRoute } from './water.js';
+import { waterAlongRoute, WATER_BUFFER_M } from './water.js';
 
 // Roads we would rather not walk, bike, or sit in traffic beside. OSRM step
 // names carry a `ref` (I-45, US-59, TX-288) for exactly the roads that hurt.
@@ -83,7 +83,16 @@ function greenMetrics(samples, layer) {
   return { greenShare: greenHits / n, shadeShare: treeHits / n, greenAt, shadeAt };
 }
 
-/** Share of route distance spent on freeways and major arterials. */
+/**
+ * Share of route distance spent on freeways and major arterials.
+ *
+ * Riding counts for nothing here, in both directions: a bus that runs down the
+ * 288 feeder is not an unpleasant experience for the person sitting on it, and
+ * neither is it a calm one — the question simply does not apply from inside a
+ * vehicle you are not steering. So a transit trip is measured on its walking
+ * legs only, which is the part the rider is actually exposed to. Boarding and
+ * getting off are not turns to remember either.
+ */
 function bigRoadShare(route) {
   let big = 0;
   let known = 0;
@@ -91,6 +100,7 @@ function bigRoadShare(route) {
 
   for (const leg of route.legs) {
     for (const step of leg.steps || []) {
+      if (step.mode === 'transit') continue;
       const dist = step.distance || 0;
       known += dist;
       if (isBigRoad(step.name || '', step.ref || '')) big += dist;
@@ -99,10 +109,13 @@ function bigRoadShare(route) {
     }
   }
 
+  // Turns per kilometre of the distance those turns are spread over — the
+  // walked part on a transit trip, the whole route otherwise.
+  const over = known > 0 ? known : route.distance;
   return {
     bigRoadShare: known > 0 ? big / known : 0,
     turns,
-    turnsPerKm: route.distance > 0 ? turns / (route.distance / 1000) : 0,
+    turnsPerKm: over > 0 ? turns / (over / 1000) : 0,
   };
 }
 
@@ -114,6 +127,32 @@ function normalise(values) {
 }
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
+
+/**
+ * The stretches of a route, as [startM, endM] along it, that are covered on
+ * foot. Everything on a walk or a bike ride is; on a transit trip it is the
+ * legs either side of the ride.
+ */
+function walkSpans(route) {
+  if (!route.transit) return null;
+  const spans = [];
+  let cursor = 0;
+  let open = null;
+  for (const leg of route.legs || []) {
+    for (const step of leg.steps || []) {
+      const end = cursor + (step.distance || 0);
+      if (step.mode === 'transit') {
+        if (open !== null) spans.push([open, cursor]);
+        open = null;
+      } else if (open === null) {
+        open = cursor;
+      }
+      cursor = end;
+    }
+  }
+  if (open !== null) spans.push([open, cursor]);
+  return spans.filter(([from, to]) => to > from);
+}
 
 /**
  * Per-sample series along the route, for the profile chart: where it is green,
@@ -144,12 +183,21 @@ function buildProfile(route, samples, green) {
   let cursor = 0;
   for (const leg of route.legs || []) {
     for (const step of leg.steps || []) {
-      spans.push({ start: cursor, end: cursor + (step.distance || 0), busy: isBigRoad(step.name || '', step.ref || '') });
+      spans.push({
+        start: cursor,
+        end: cursor + (step.distance || 0),
+        busy: isBigRoad(step.name || '', step.ref || ''),
+        ride: step.mode === 'transit',
+      });
       cursor += step.distance || 0;
     }
   }
 
   const busyAt = new Uint8Array(samples.length);
+  // Where you are on board rather than on your feet. Used twice: drawn as its
+  // own row on the profile, and used to restrict the green and shade averages
+  // to the part of the trip spent outdoors.
+  const rideAt = new Uint8Array(samples.length);
   if (spans.length) {
     // Steps and samples are both ordered, so walk them together rather than
     // searching the step list for every sample.
@@ -158,6 +206,7 @@ function buildProfile(route, samples, green) {
       const along = distances[i];
       while (cursorIndex < spans.length - 1 && along > spans[cursorIndex].end) cursorIndex++;
       busyAt[i] = spans[cursorIndex].busy ? 1 : 0;
+      rideAt[i] = spans[cursorIndex].ride ? 1 : 0;
     }
   }
 
@@ -168,7 +217,34 @@ function buildProfile(route, samples, green) {
     green: green.greenAt ?? [],
     shade: green.shadeAt ?? [],
     busy: busyAt,
+    ride: rideAt,
+    hasRide: spans.some((span) => span.ride),
   };
+}
+
+/**
+ * Re-average the per-sample green and shade series over the samples that are
+ * actually outdoors.
+ *
+ * A transit trip's shade percentage has to mean "shade where you are standing
+ * in it". Averaged over the whole route it measures the tree cover along a
+ * rail corridor seen through a window, which is not a number about anybody's
+ * comfort — and it would make the 12-mile ride swamp the half-mile walk that
+ * decides whether the trip is bearable.
+ */
+function outdoorShares(green, rideAt) {
+  if (!rideAt?.length || !green.greenAt?.length) return null;
+  let outdoor = 0;
+  let greenHits = 0;
+  let shadeHits = 0;
+  for (let i = 0; i < rideAt.length; i++) {
+    if (rideAt[i]) continue;
+    outdoor++;
+    if (green.greenAt[i]) greenHits++;
+    if (green.shadeAt[i]) shadeHits++;
+  }
+  if (!outdoor) return null;
+  return { greenShare: greenHits / outdoor, shadeShare: shadeHits / outdoor, outdoorSamples: outdoor };
 }
 
 /**
@@ -196,8 +272,15 @@ export function scoreRoutes(routes, layer, mode, weights, scoreMode = 'absolute'
       ? greenMetrics(samples, layer)
       : { greenShare: 0, shadeShare: 0, greenAt: [], shadeAt: [] };
     const roads = bigRoadShare(route);
+    const profile = buildProfile(route, samples, green);
     const km = route.distance / 1000;
     const minutes = route.duration / 60;
+
+    // On a transit trip the green and shade figures describe the walking and
+    // waiting, not the ride. Everything else scores a route end to end.
+    const outdoor = profile?.hasRide ? outdoorShares(green, profile.ride) : null;
+    const greenShare = outdoor ? outdoor.greenShare : green.greenShare;
+    const shadeShare = outdoor ? outdoor.shadeShare : green.shadeShare;
 
     // How close this route comes to the straight line between the endpoints.
     // In a grid city a good route lands around 0.75-0.85; it is the absolute
@@ -206,22 +289,43 @@ export function scoreRoutes(routes, layer, mode, weights, scoreMode = 'absolute'
     const crowFlyM = haversine(route.points[0], route.points[route.points.length - 1]);
     const efficiency = clamp01(crowFlyM / Math.max(route.distance, 1));
 
-    const water = waterAlongRoute(route.points, layer?.water);
+    // Fountains are only worth finding where you are on foot. Matching them
+    // against a rail alignment would count every fountain the train passes.
+    const water = waterAlongRoute(route.points, layer?.water, WATER_BUFFER_M, {
+      onFoot: walkSpans(route),
+    });
 
-    // Unshaded minutes outdoors — the number that matters for a June
-    // World Cup in Houston, where afternoon heat index runs past 105F.
-    const exposedMinutes = modeCfg.heatExposed ? minutes * (1 - green.shadeShare) : 0;
+    // Unshaded minutes outdoors — the number that matters for a June World Cup
+    // in Houston, where afternoon heat index runs past 105F.
+    //
+    // For a transit trip "outdoors" is the walk to the stop plus the wait at
+    // it, not the ride: a 52-minute Red Line trip with a 9-minute walk and a
+    // 6-minute wait leaves you in the sun for 15 minutes, and reporting 52
+    // would be the single most misleading number this app could print.
+    const outdoorMinutes = route.transit
+      ? route.transit.outdoorSec / 60
+      : modeCfg.heatExposed
+        ? minutes
+        : 0;
+    const exposedMinutes = outdoorMinutes * (1 - shadeShare);
+
+    // Per-leg for a transit trip — walking legs emit nothing, and a METRORail
+    // car and a bus are charged at their own rates. Everything else is one
+    // vehicle for the whole distance.
+    const walkKm = route.transit ? route.transit.walkM / 1000 : km;
+    const co2Kg = route.transit ? route.transit.co2Kg : (km * modeCfg.co2PerKm) / 1000;
 
     return {
       ...route,
       samples,
-      profile: buildProfile(route, samples, green),
+      profile,
       water,
       metrics: {
         km,
         minutes,
-        greenShare: green.greenShare,
-        shadeShare: green.shadeShare,
+        outdoorMinutes,
+        greenShare,
+        shadeShare,
         bigRoadShare: roads.bigRoadShare,
         turns: roads.turns,
         turnsPerKm: roads.turnsPerKm,
@@ -230,11 +334,11 @@ export function scoreRoutes(routes, layer, mode, weights, scoreMode = 'absolute'
         waterStops: water.stops.length,
         longestDryKm: water.longestDryM / 1000,
         exposedMinutes,
-        co2Kg: (km * modeCfg.co2PerKm) / 1000,
-        co2SavedVsDrivingKg: (km * (MODES.car.co2PerKm - modeCfg.co2PerKm)) / 1000,
-        transitCo2Kg: (km * TRANSIT_CO2_PER_KM) / 1000,
-        kcal: km * modeCfg.kcalPerKm,
-        cost: km * modeCfg.costPerKm,
+        co2Kg,
+        co2SavedVsDrivingKg: (km * MODES.car.co2PerKm) / 1000 - co2Kg,
+        transitCo2Kg: (km * TRANSIT_CO2_PER_KM.bus) / 1000,
+        kcal: walkKm * modeCfg.kcalPerKm,
+        cost: walkKm * modeCfg.costPerKm,
       },
     };
   });
