@@ -380,6 +380,60 @@ input[type="text"],
   font-size: 11px;
 }
 
+.toggle {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 9px;
+  align-items: start;
+  margin-top: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.toggle:hover {
+  border-color: var(--accent);
+}
+
+.toggle input {
+  margin: 2px 0 0;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.toggle-text b {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.toggle-text small {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+/* A measured result the app wants read, not skimmed past — the cost of
+   routing step-free, or the fact that there is no step-free way at all. */
+.finding {
+  margin: 0 0 10px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.finding.is-blocked {
+  border-left-color: var(--warn);
+  background: #fdf1e0;
+}
+
 .ride {
   border: 1px solid var(--line);
   border-radius: 10px;

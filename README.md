@@ -158,6 +158,38 @@ The map follows the same distinction — rides drawn solid in the line colour fr
 (the Red Line is red because METRO says it is), walking dashed and grey, with hollow pins at every
 boarding and alighting point.
 
+### Step-free routing, and a trap worth documenting
+
+Ticking **♿ Step-free routes only** routes the walk to the stop, every transfer
+and the walk off with MOTIS's `WHEELCHAIR` pedestrian profile instead of `FOOT`.
+
+The finding it reports is smaller than the one we first measured, and the
+difference is the interesting part. METRO's vehicles are marked accessible
+throughout the feed and METRORail has level boarding at every platform, so on
+most Houston trips **the step-free route is the same route** — it is simply
+walked at about 0.69 m/s instead of 1.03. Rice → NRG: the same Red Line trip,
+51 minutes instead of 38. Twelve extra minutes, all of it outdoors, which in a
+Houston June is the cost that actually matters.
+
+The trap: MOTIS budgets the first and last walking legs in **seconds** — 900
+each by default — so the two profiles do not cover the same *ground*. 900 s is
+about 930 m on foot but only about 620 m in a wheelchair, and any trip whose
+last leg falls between those is silently dropped from the step-free results
+only. Rice → NRG loses METRORail entirely under the defaults, because the 971 m
+from Houston Stadium Stn takes 20 minutes at wheelchair pace.
+
+Read naively that looks like a damning accessibility finding about Houston. It
+is a unit mismatch. Raise the budget and the Red Line comes straight back, on
+the same departure. So each profile is given the budget that buys it the same
+~1.2 km of walking (`WALK_BUDGET_S` in [`js/transit.js`](js/transit.js)), and
+the comparison means something.
+
+Worth stating plainly because the wrong version of this number is the kind a
+demo repeats on stage: *this app can tell you a step-free trip takes longer. It
+cannot tell you a path is blocked.* Where no step-free trip is found at all,
+the app says so and points at OpenStreetMap's patchy kerb and crossing data
+rather than blaming the city.
+
 ### When?
 
 Transit is the only mode where the answer depends on the clock, so it gets a **Leave at / Arrive
@@ -375,6 +407,9 @@ origin, destination, mode
   transit result rather than implying a precision it does not have.
 - **No fares.** METRO's feed ships no fare products, so the app shows no fare figure and links to
   METRO's own fare page instead of printing a number it cannot source.
+- **Step-free routing measures pace, not access.** The wheelchair profile walks the same
+  OpenStreetMap network more slowly; where it refuses a path, that is as likely to be a missing
+  kerb tag as a real barrier. The app reports the time difference and declines to explain it.
 - Public OSRM and Overpass instances are rate-limited and occasionally unavailable; the bundled
   extract covers the inner loop so a live demo still works when they are.
 

@@ -121,6 +121,19 @@
               Houston time. METRO timetables are scheduled, not live — a late bus still
               shows on time here.
             </p>
+
+            <label class="toggle" for="step-free">
+              <input type="checkbox" id="step-free" />
+              <span class="toggle-text">
+                <b>♿ Step-free routes only</b>
+                <small>
+                  Routes the walk to the stop, the transfers and the walk off at
+                  wheelchair pace. METRO's vehicles are accessible throughout and
+                  METRORail has level boarding — mostly this is the same trip, walked
+                  more slowly, which means longer outdoors.
+                </small>
+              </span>
+            </label>
           </div>
 
           <button id="compare-btn" class="primary">Compare routes</button>
@@ -135,6 +148,7 @@
         <section class="card" id="transit-card" hidden>
           <h2><span id="transit-title">METRO trip</span></h2>
           <p class="hint" id="transit-summary"></p>
+          <p class="finding" id="step-free-finding" hidden></p>
           <div id="transit-legs"></div>
           <p class="hint" id="transit-sources"></p>
         </section>

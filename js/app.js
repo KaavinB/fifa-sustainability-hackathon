@@ -66,6 +66,8 @@ const state = {
   // Transit is the only mode where *when* changes the answer, so the time
   // lives in state rather than being read off the clock at request time.
   when: { kind: 'depart' },
+  stepFree: false,
+  stepFreeCost: null,
   queued: false,
   transitNote: '',
 };
@@ -814,7 +816,14 @@ async function compare() {
     // Drop absurd detours: nobody walks 3x as far for a nicer view. Transit
     // options are already real timetabled trips, so the only thing worth
     // trimming there is the length of the list.
-    if (!isTransit()) {
+    if (isTransit()) {
+      // Late at night a bus-only or rail-only search can answer with something
+      // technically valid and practically absurd — three transfers and a
+      // four-hour wait. Judge transit on time rather than distance: the ride
+      // length is not the rider's cost, the clock is.
+      const quickest = Math.min(...candidates.map((r) => r.duration));
+      candidates = candidates.filter((r) => r.duration <= Math.max(quickest * 2.2, quickest + 1800));
+    } else {
       const shortest = Math.min(...candidates.map((r) => r.distance));
       candidates = candidates.filter((r) => r.distance <= shortest * 1.9);
     }
@@ -876,12 +885,14 @@ function departureTime() {
 async function fetchTransitCandidates(origin, destination) {
   const when = departureTime();
   const arriveBy = state.when.kind === 'arrive';
-  const { routes, walkOnly } = await planTransit(origin.coord, destination.coord, {
+  const { routes, walkOnly, stepFreeCost } = await planTransit(origin.coord, destination.coord, {
     when,
     arriveBy,
+    stepFree: state.stepFree,
   });
 
   state.transitNote = '';
+  state.stepFreeCost = stepFreeCost;
   const candidates = [...routes];
 
   if (walkOnly) {
@@ -894,6 +905,16 @@ async function fetchTransitCandidates(origin, destination) {
   }
 
   if (!candidates.length) {
+    // Distinguish "METRO does not go there" from "METRO goes there, but not
+    // step-free". The second is a finding about Houston, not a dead end.
+    if (state.stepFree && stepFreeCost?.blocked) {
+      throw new Error(
+        `No step-free METRO trip found between those points. On foot the ` +
+          `${stepFreeCost.baseline.routes.join(' → ')} does it in ` +
+          `${stepFreeCost.baseline.minutes} min. OpenStreetMap's kerb and crossing data is ` +
+          `patchy, so check METRO directly before believing it.`,
+      );
+    }
     throw new Error(
       `No METRO trip found between those points ${
         arriveBy ? 'arriving by' : 'leaving around'
@@ -1242,12 +1263,15 @@ function renderTransit() {
     : 'On foot the whole way';
 
   if (!rides.length) {
+    renderStepFreeFinding();
     el('transit-summary').textContent =
       'No scheduled METRO trip is faster than walking this, so there is nothing to catch.';
     el('transit-legs').innerHTML = '';
     el('transit-sources').innerHTML = '';
     return;
   }
+
+  renderStepFreeFinding();
 
   const wait = Math.round(t.waitSec / 60);
   el('transit-summary').innerHTML =
@@ -1298,6 +1322,73 @@ function renderTransit() {
     `routed by <a href="${METRO_LINKS.router}" target="_blank" rel="noopener">Transitous</a>. ` +
     `Fares are not in the feed — see ` +
     `<a href="${t.fareUrl || METRO_LINKS.fares}" target="_blank" rel="noopener">METRO fares</a>.`;
+}
+
+/**
+ * What routing step-free cost on this trip.
+ *
+ * Careful about what this number is, because the obvious reading of it is
+ * wrong. METRO's vehicles are accessible throughout the feed and METRORail has
+ * level boarding at every platform, so on most Houston trips the step-free
+ * route is the SAME route — it just takes longer, because the router walks it
+ * at about 0.69 m/s instead of 1.03. That is a real cost and worth showing,
+ * and in July it is the cost that matters: the same pavement, more minutes
+ * standing on it. What it is not is evidence of a blocked path, and the copy
+ * below does not imply one.
+ *
+ * Where the two genuinely differ in *route*, that is worth naming too — but
+ * only as the observation that a different trip was chosen, not as a verdict
+ * on why.
+ */
+function renderStepFreeFinding() {
+  const node = el('step-free-finding');
+  const cost = state.stepFreeCost;
+  node.hidden = !state.stepFree || !cost;
+  if (node.hidden) return;
+
+  node.classList.toggle('is-blocked', Boolean(cost.blocked) || cost.minutes >= 15);
+
+  if (cost.blocked) {
+    node.innerHTML =
+      `<b>No step-free trip found.</b> On foot the ` +
+      `${escapeHtml(cost.baseline.routes.join(' → '))} does this in ${cost.baseline.minutes} min. ` +
+      `OpenStreetMap's kerb and crossing data is patchy, so this is a gap in the map as much ` +
+      `as a statement about the city — check METRO directly before believing it.`;
+    return;
+  }
+
+  const same =
+    cost.stepFree.routes.join(' → ') === cost.baseline.routes.join(' → ');
+
+  if (cost.minutes <= 1 && cost.transfers <= 0) {
+    node.innerHTML =
+      `<b>Step-free costs nothing here.</b> The same trip works either way — ` +
+      `${escapeHtml(cost.stepFree.routes.join(' → '))}, ${cost.stepFree.minutes} min.`;
+    return;
+  }
+
+  // Same routes, more minutes: the difference is pace, not access. Saying so
+  // matters, because the alternative reading — that something is blocked — is
+  // both the likelier one and untrue.
+  if (same) {
+    node.innerHTML =
+      `<b>Step-free adds ${cost.minutes} min here.</b> Same trip, ` +
+      `${escapeHtml(cost.stepFree.routes.join(' → '))}: the route is unchanged, it is walked ` +
+      `at wheelchair pace. That is ${cost.minutes} more minutes outdoors, which is the part ` +
+      `that matters in July.`;
+    return;
+  }
+
+  const extraTransfers =
+    cost.transfers > 0
+      ? `, ${cost.transfers} more transfer${cost.transfers === 1 ? '' : 's'}`
+      : '';
+  node.innerHTML =
+    `<b>Step-free adds ${cost.minutes} min${extraTransfers} here.</b> ` +
+    `At wheelchair pace the quickest trip becomes ` +
+    `${escapeHtml(cost.stepFree.routes.join(' → '))} (${cost.stepFree.minutes} min) rather than ` +
+    `${escapeHtml(cost.baseline.routes.join(' → '))} (${cost.baseline.minutes} min) — a different ` +
+    `trip wins, not a blocked one. METRO's vehicles are accessible either way.`;
 }
 
 /* -------------------------------------------------------- directions --- */
@@ -1503,6 +1594,12 @@ function setupWhenControls() {
   time.addEventListener('change', rerun);
   el('when-now').addEventListener('click', () => {
     reset();
+    rerun();
+  });
+
+  el('step-free').addEventListener('change', (event) => {
+    state.stepFree = event.target.checked;
+    state.stepFreeCost = null;
     rerun();
   });
 
