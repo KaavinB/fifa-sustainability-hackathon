@@ -342,6 +342,77 @@ input[type="text"],
   gap: 4px;
 }
 
+/* ---------------------------------------------------------------- heat --- */
+
+/* The hour strip is a picker as well as a chart, so every cell is a real
+   button: keyboard reachable, with a hit target taller than the mark it
+   draws. Cells are separated by a surface gap rather than a border, so the
+   ramp's own steps carry the reading. */
+.heat-strip {
+  display: flex;
+  gap: 2px;
+  margin: 2px 0 6px;
+}
+
+.heat-hour {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  display: grid;
+  gap: 3px;
+  justify-items: center;
+}
+
+.heat-bar {
+  width: 100%;
+  height: 30px;
+  border-radius: 4px;
+  background: var(--line);
+  box-shadow: inset 0 0 0 0 #fff;
+}
+
+/* The selected hour is ringed in ink, not recoloured: the cell has to keep
+   showing its own heat band while it is selected. */
+.heat-hour.is-on .heat-bar {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px #111827;
+}
+
+.heat-hour:hover .heat-bar,
+.heat-hour:focus-visible .heat-bar {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 3px var(--muted);
+}
+
+.heat-hour:focus-visible {
+  outline: none;
+}
+
+.heat-tick {
+  font-size: 9.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.heat-hour.is-on .heat-tick {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.heat-readout {
+  font-size: 12px;
+  color: var(--muted);
+  min-height: 1.3em;
+  margin-top: 2px;
+}
+
+.heat-readout b {
+  color: var(--ink);
+}
+
 /* ------------------------------------------------------------- transit --- */
 
 /* The trip at a glance: walk › 700 › walk. Read before the score is. */
