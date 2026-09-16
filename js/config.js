@@ -79,6 +79,16 @@ export const METRO_LINKS = {
   router: 'https://transitous.org/',
 };
 
+// WEATHER AND AIR
+//
+// Open-Meteo, keyless and CORS-open, for the conditions a trip happens in.
+// Temperature and humidity come back as model output; the heat index the app
+// reports is computed from them here with the National Weather Service's own
+// equation rather than taken from Open-Meteo's `apparent_temperature`, so the
+// number can be checked line by line in js/weather.js.
+export const WEATHER_API = 'https://api.open-meteo.com/v1/forecast';
+export const AIR_QUALITY_API = 'https://air-quality-api.open-meteo.com/v1/air-quality';
+
 export const OVERPASS_ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
@@ -218,7 +228,20 @@ export const IMPACT_SOURCES = [
   { figure: 'Driving cost — $0.42/km', source: 'IRS 2024 standard mileage rate, $0.67/mile' },
   {
     figure: 'Unshaded minutes',
-    source: 'computed here: trip duration × the share of the route with no mapped canopy',
+    source: 'computed here: time outdoors × the share of the route with no mapped canopy',
+  },
+  {
+    figure: 'Heat index',
+    source:
+      "computed here from Open-Meteo's temperature and humidity using the US National " +
+      'Weather Service equation (Rothfusz regression, with the NWS dry and humid ' +
+      'corrections). It assumes shade — in direct sun the real figure runs up to ~15 °F higher',
+  },
+  {
+    figure: 'Ozone, PM2.5 and US AQI',
+    source:
+      "Open-Meteo's air-quality model (CAMS) — modelled for the area, not a reading from " +
+      'a nearby monitor. Index categories are the EPA’s',
   },
   {
     figure: 'Green, shade, water',

@@ -17,6 +17,7 @@ a person walks, rides, or gives up and calls a car:
 | **Tree canopy** | share of the route under mapped trees, tree rows, or woodland | OpenStreetMap |
 | **Away from traffic** | share of route distance on freeways, tollways, and feeder roads | OSRM step data |
 | **Directness** | detour vs. the shortest option, plus turns per km | OSRM |
+| **Heat** | the NWS heat index for the hours the trip actually occupies | Open-Meteo, computed here |
 
 Those four combine into a 0–100 **pleasantness score** with weights the user controls live.
 Alongside it the app reports the sustainability numbers: CO₂ emitted or avoided versus driving
@@ -197,6 +198,117 @@ by** control. Times are Houston's whatever the browser's own zone is: a visitor 
 London hotel wants the bus that leaves at 7:16 pm Central, not 1:16 am. There is no library behind
 that — the offset is computed from `Intl` for the specific instant, with a second pass for the two
 days a year the clocks move.
+
+## The heat you're actually in
+
+For most of this project's life its central claim was unbacked. The app was
+built around Houston heat and contained no heat data: `unshaded minutes` was
+pure geometry — minutes times the share of the route with no mapped canopy —
+and it read exactly the same at 70 °F as at 105 °F.
+
+Now every trip is planned at a time, and the conditions for those hours come
+from [Open-Meteo](https://open-meteo.com/) (keyless, no registration). Twenty-three
+unshaded minutes stops being an abstraction:
+
+> Feels like **106 °F** (Danger) — air 94 °F at 55% humidity.
+> You are outside and unshaded for **44 min** of it, under UV 7.
+
+### The heat index is computed here, not fetched
+
+Open-Meteo returns an `apparent_temperature` and the app deliberately ignores it.
+A number this much weight rests on should be one we can show the working for, so
+[`js/weather.js`](js/weather.js) computes the **US National Weather Service heat
+index** from the measured temperature and humidity — the Rothfusz regression plus
+the NWS's own corrections at the dry and humid edges. It agrees with Open-Meteo's
+figure to about a degree (89 °F / 73% → 104.9 here, 104 theirs), it is the number
+Houstonians hear on the news, and it can be checked line by line.
+
+One caveat the UI repeats because it matters: **the heat index assumes shade.**
+In direct sun the real figure runs up to ~15 °F higher — which is the entire
+reason this app spends so much effort on where the canopy is.
+
+### The hour strip is a chart *and* a control
+
+```
+   ███ ███ ▓▓▓ ███ ███ ███ ▒▒▒ ▒▒▒ ▒▒▒ ░░░ ░░░ ░░░
+   12p     2p      3p          6p          9p
+   Leaving at 8p is 11°F easier. This trip would feel like
+   95°F then, against 106°F now. Same route, same shade —
+   different afternoon.
+```
+
+Colour encodes the **NWS band**, not a continuous temperature, because the bands
+are the part that carries meaning — they are what warnings get issued against.
+Five steps of one hue, light to dark, checked with the dataviz validator's
+ordinal mode (monotone lightness, every adjacent gap ≥ 0.06, light end clear of
+the 2:1 floor, hue spread 10°) rather than picked by eye. The band is always
+named in text beside the colour; nothing here is colour-alone.
+
+Clicking an hour re-plans at it — and what that costs depends on the mode, which
+is the nice part. Roads don't care what time it is, so walking, cycling and
+driving re-read a forecast already in memory and re-render in about **110 ms**
+with no re-routing. METRO's timetable very much does care, so that one goes back
+to the router.
+
+Both figures in that advice are averaged over the span the trip actually
+occupies, not read off the departure hour — otherwise a 90-minute ride gets
+compared against a single hour it is only partly in, and the card prints two
+different temperatures for the same departure. It did, briefly, before this was
+fixed.
+
+The advice only appears when the heat is worth escaping (≥ 90 °F) and the better
+hour is within six hours. Unbounded, it degenerates into "travel at night",
+which is true of every hot place and helps nobody.
+
+### Driving gets the conditions, not the advice
+
+A driver is not in the weather. Offering them a cooler hour is advice for
+somebody else's trip, so in Drive mode the card reports the conditions and stops:
+
+> Feels like 107 °F (Danger) — air 95 °F at 52% humidity. You are in air
+> conditioning for all 16 min of it — which is what the CO₂ below buys.
+
+### Ozone
+
+Houston's signature pollutant peaks on hot, still afternoons — exactly the
+conditions this app is about — and it matters most to the people breathing
+hardest, which is cyclists. AQI and ozone ride along in the heat card's source
+line, and air quality takes a slot in *Trip impact* only when it crosses the
+EPA's "Unhealthy for sensitive groups" line **and** the mode is one you breathe
+hard in. It is modelled (CAMS via Open-Meteo), not a reading from a monitor down
+the road, and the UI says so.
+
+## Nothing searches on its own
+
+A comparison is expensive: an OSRM call, an Overpass download over the whole
+corridor, and for METRO three timetable queries on top. It used to fire by
+itself from seven places — picking a suggestion, clicking the map, dragging a
+pin, swapping ends, geolocating, switching mode, moving the departure time — so
+setting up a trip could kick off four searches before you had finished
+describing it, on public instances that take tens of seconds when they are busy.
+
+**Only the button searches now.** Everything else says what changed:
+
+> Mode changed to Bike. The routes below are from your last search — hit
+> **Compare routes** to update them.
+
+The results stay on screen rather than vanishing, because flipping to another
+mode to look and flipping back should not cost a re-search — but they carry an
+`outdated` chip and the button takes a ring, so a stale list can never pass for
+a current one.
+
+The line between the two is whether an answer needs the network:
+
+| Action | What happens |
+| --- | --- |
+| Weight sliders, absolute ↔ relative | re-scored from data already in memory, instantly |
+| Picking an hour on walk / bike / drive | re-read of a forecast already loaded — ~50 ms, no request |
+| Picking an hour on METRO | marked stale; the timetable genuinely differs by hour |
+| Endpoints, mode, swap, step-free | marked stale |
+| **Compare routes**, or Enter in a search box | searches |
+
+Enter still works, because pressing it in a search box is someone asking for a
+search, not the app deciding to run one.
 
 ## Water stops
 
@@ -389,6 +501,7 @@ origin, destination, mode
 | [`js/sheet.js`](js/sheet.js) | the draggable mobile bottom sheet and its snap points |
 | [`js/directions.js`](js/directions.js) | turn-by-turn instructions, per-step shade scoring |
 | [`js/water.js`](js/water.js) | drinking-water matching along a route, longest dry stretch |
+| [`js/weather.js`](js/weather.js) | hourly conditions, the NWS heat index, heat and AQI bands |
 | [`js/greenspace.js`](js/greenspace.js) | Overpass query, caching, offline fallback, spatial indexing |
 | [`js/scoring.js`](js/scoring.js) | route metrics, normalisation, composite score, badges |
 | [`js/app.js`](js/app.js) | map, form, sliders, rendering |
@@ -407,6 +520,9 @@ origin, destination, mode
   transit result rather than implying a precision it does not have.
 - **No fares.** METRO's feed ships no fare products, so the app shows no fare figure and links to
   METRO's own fare page instead of printing a number it cannot source.
+- **The forecast is a forecast.** It runs about a week out; METRO's timetable runs a year. Ask
+  for a trip beyond the forecast horizon and the heat card quietly stands down rather than
+  guessing. Air quality is modelled for the area, not measured nearby.
 - **Step-free routing measures pace, not access.** The wheelchair profile walks the same
   OpenStreetMap network more slowly; where it refuses a path, that is as likely to be a missing
   kerb tag as a real barrier. The app reports the time difference and declines to explain it.
@@ -422,7 +538,9 @@ on the free public service run by [Transitous](https://transitous.org/), over
 ([Transitland](https://www.transit.land/feeds/f-9vk-metropolitantransitauthorityofharriscounty)).
 Map data
 © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, queried through
-[Overpass](https://overpass-api.de/). Basemap tiles © [CARTO](https://carto.com/attributions).
+[Overpass](https://overpass-api.de/). Weather and air quality from
+[Open-Meteo](https://open-meteo.com/); the heat index is computed from it here with the
+[US National Weather Service](https://www.weather.gov/safety/heat-index) equation. Basemap tiles © [CARTO](https://carto.com/attributions).
 Emission factors from the US EPA (average light-duty vehicle, 404 g CO₂/mile) and FTA transit
 averages.
 

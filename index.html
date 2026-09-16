@@ -107,8 +107,8 @@
             </div>
           </div>
 
-          <div class="field" id="when-field" hidden>
-            <span>When?</span>
+          <div class="field" id="when-field">
+            <span>When are you going?</span>
             <div class="when-row">
               <select id="when-kind" aria-label="Depart at or arrive by">
                 <option value="depart">Leave at</option>
@@ -117,12 +117,11 @@
               <input type="datetime-local" id="when-time" aria-label="Date and time, Houston time" />
               <button type="button" class="link-btn" id="when-now">now</button>
             </div>
-            <p class="hint" style="margin:6px 0 0">
-              Houston time. METRO timetables are scheduled, not live — a late bus still
-              shows on time here.
+            <p class="hint" style="margin:6px 0 0" id="when-hint">
+              Houston time.
             </p>
 
-            <label class="toggle" for="step-free">
+            <label class="toggle" for="step-free" id="step-free-field">
               <input type="checkbox" id="step-free" />
               <span class="toggle-text">
                 <b>♿ Step-free routes only</b>
@@ -137,12 +136,22 @@
           </div>
 
           <button id="compare-btn" class="primary">Compare routes</button>
+          <p id="stale-note" class="stale-note" role="status" aria-live="polite" hidden></p>
           <p id="status" class="status" role="status" aria-live="polite"></p>
         </section>
 
         <section class="card" id="results-card" hidden>
-          <h2>Routes</h2>
+          <h2>Routes <span class="stale-chip" id="stale-chip" hidden>outdated</span></h2>
           <div id="routes"></div>
+        </section>
+
+        <section class="card" id="heat-card" hidden>
+          <h2><span id="heat-title">Heat along the way</span></h2>
+          <p class="hint" id="heat-summary"></p>
+          <div id="heat-strip"></div>
+          <div class="profile-legend" id="heat-legend"></div>
+          <p class="finding" id="heat-advice" hidden></p>
+          <p class="hint" id="heat-source"></p>
         </section>
 
         <section class="card" id="transit-card" hidden>

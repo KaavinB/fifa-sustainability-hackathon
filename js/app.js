@@ -25,6 +25,14 @@ import {
   houstonWallTimeToDate,
   dateToHoustonWallTime,
 } from './transit.js';
+import {
+  loadConditions,
+  conditionsOver,
+  hoursFrom,
+  heatBand,
+  aqiBand,
+  HEAT_BANDS,
+} from './weather.js';
 import { suggestPlaces, resolvePlace, describeCoordinate, locateMe } from './places.js';
 import { initSheet } from './sheet.js';
 
@@ -66,9 +74,17 @@ const state = {
   // Transit is the only mode where *when* changes the answer, so the time
   // lives in state rather than being read off the clock at request time.
   when: { kind: 'depart' },
+  // The forecast for this trip, and the slice of it the trip happens in.
+  // Loaded once per comparison; changing the hour re-reads it rather than
+  // re-fetching, which is what makes the hour strip feel instant.
+  conditions: null,
+  heatHour: null,
   stepFree: false,
   stepFreeCost: null,
   queued: false,
+  // What has changed since the routes on screen were found. Null when they
+  // are current. Nothing here ever triggers a search by itself.
+  stale: null,
   transitNote: '',
 };
 
@@ -175,7 +191,8 @@ function setMarker(role, place) {
         setStatus('Naming the spot you dropped…');
         const dropped = await describeCoordinate([lat, lng]);
         applyPlace(role, dropped);
-        compare();
+        setStatus(`${role === 'origin' ? 'Start' : 'Finish'} moved to ${dropped.label}.`);
+        markStale(`${role === 'origin' ? 'Start' : 'Finish'} moved.`);
       });
     state.markers[role] = marker;
   }
@@ -524,9 +541,8 @@ map.on('click', async (event) => {
   setStatus('Naming that spot…');
   const place = await describeCoordinate(coord);
   applyPlace(role, place);
-
-  if (state.places.origin && state.places.destination) compare();
-  else setStatus(`${role === 'origin' ? 'Start' : 'Finish'} set to ${place.label}.`);
+  setStatus(`${role === 'origin' ? 'Start' : 'Finish'} set to ${place.label}.`);
+  markStale(`${role === 'origin' ? 'Start' : 'Finish'} changed.`);
 });
 
 /* ------------------------------------------------------------- status --- */
@@ -535,6 +551,50 @@ function setStatus(message, isError = false) {
   const node = el('status');
   node.textContent = message;
   node.classList.toggle('is-error', isError);
+}
+
+/**
+ * Record that an input changed without going and fetching anything.
+ *
+ * Searching is expensive — a comparison is an OSRM call, an Overpass download
+ * over the corridor, and for METRO three timetable queries — and it used to
+ * fire on its own from seven different places: picking a suggestion, clicking
+ * the map, dragging a pin, swapping ends, geolocating, switching mode, moving
+ * the departure time. Now those only say what changed; the button does the work.
+ *
+ * The one thing that must not happen is a stale list looking current, so the
+ * results keep their place on screen and are labelled for what they are.
+ */
+function markStale(reason) {
+  if (!state.routes.length && !state.rawRoutes.length) {
+    // Nothing on screen to go stale — just let the button speak for itself.
+    state.stale = null;
+    renderStale();
+    return;
+  }
+  state.stale = reason;
+  renderStale();
+}
+
+function clearStale() {
+  state.stale = null;
+  renderStale();
+}
+
+function renderStale() {
+  const note = el('stale-note');
+  const chip = el('stale-chip');
+  const button = el('compare-btn');
+
+  note.hidden = !state.stale;
+  chip.hidden = !state.stale;
+  button.classList.toggle('is-pending', Boolean(state.stale));
+
+  if (state.stale) {
+    note.innerHTML =
+      `${escapeHtml(state.stale)} The routes below are from your last search — ` +
+      `hit <b>Compare routes</b> to update them.`;
+  }
 }
 
 function setBusy(busy) {
@@ -636,8 +696,13 @@ function createCombo(role, inputId, listId) {
       applyPlace(role, place);
     }
 
-    // Both ends known? Go straight to comparing — that is why they typed it.
-    if (state.places.origin && state.places.destination) compare();
+    const label = role === 'origin' ? 'Start' : 'Finish';
+    setStatus(
+      state.places.origin && state.places.destination
+        ? `${label} set. Hit Compare routes when you are ready.`
+        : `${label} set to ${state.places[role].label}.`,
+    );
+    markStale(`${label} changed.`);
   }
 
   async function search() {
@@ -653,8 +718,12 @@ function createCombo(role, inputId, listId) {
   }
 
   input.addEventListener('input', () => {
-    // Typing invalidates the previously resolved place for this field.
+    // Typing invalidates the previously resolved place for this field, which
+    // is exactly what makes the routes on screen out of date. (Setting the
+    // box from code does not fire this, so picking a suggestion cannot
+    // trigger it twice.)
     state.places[role] = null;
+    markStale(`${role === 'origin' ? 'Start' : 'Finish'} changed.`);
     clearTimeout(timer);
     timer = setTimeout(search, 220);
   });
@@ -732,6 +801,7 @@ async function compare() {
     return;
   }
   state.queued = false;
+  clearStale();
   setBusy(true);
   setStatus('Finding your start and finish…');
 
@@ -865,6 +935,24 @@ async function compare() {
       used.add(route.color);
       route.labelAt = offsets[i % offsets.length];
     });
+
+    // The forecast is for where the trip is, which is neither endpoint when the
+    // two are far apart. It is deliberately not awaited before scoring: a
+    // weather outage must cost the heat card, never the routes.
+    const midpoint = [
+      (origin.coord[0] + destination.coord[0]) / 2,
+      (origin.coord[1] + destination.coord[1]) / 2,
+    ];
+    loadConditions(midpoint)
+      .then((conditions) => {
+        state.conditions = conditions;
+        renderHeat();
+        renderDetail();
+      })
+      .catch(() => {
+        state.conditions = null;
+        renderHeat();
+      });
 
     state.layer = layer;
     state.rawRoutes = candidates;
@@ -1015,6 +1103,7 @@ function clearResults() {
   state.activeStep = null;
   state.selected = 0;
   state.stepFreeCost = null;
+  state.heatHour = null;
   clearRouteLines();
   if (state.waterLayer) {
     map.removeLayer(state.waterLayer);
@@ -1031,6 +1120,7 @@ function clearResults() {
     'directions-card',
     'water-card',
     'detail-card',
+    'heat-card',
   ]) {
     el(id).hidden = true;
   }
@@ -1056,6 +1146,7 @@ function rescore({ fit = false } = {}) {
   state.selected = Math.min(state.selected, scored.length - 1);
 
   renderRoutes();
+  renderHeat();
   renderTransit();
   renderDirections();
   renderRouteProfile();
@@ -1101,6 +1192,7 @@ function select(index, { focus = true } = {}) {
   state.selected = index;
   state.activeStep = null;
   renderRoutes();
+  renderHeat();
   renderTransit();
   renderDirections();
   renderRouteProfile();
@@ -1227,19 +1319,34 @@ function renderDetail() {
   // The headline number for a transit trip is not how long it takes, it is how
   // long it leaves you outside: the walk to the stop plus the wait at it.
   // Twelve air-conditioned miles on the Red Line cost nothing in heat.
+  // The forecast turns the exposure figure from a geometry result into a
+  // physical one: twenty-three unshaded minutes means nothing until you know
+  // whether it is 72°F or 104°F out there.
+  const now = tripConditions();
+  const band = now ? heatBand(now.heatIndex) : null;
+  const feels = now ? `feels like ${Math.round(now.heatIndex)}°F` : null;
+
   const heatCard = t
     ? stat(
         'Unshaded outdoors',
         `${Math.round(m.exposedMinutes)} min`,
-        `of ${Math.round(m.outdoorMinutes)} min walking and waiting — the ride is indoors`,
+        feels
+          ? `${feels} — the ride is indoors, the ${Math.round(m.outdoorMinutes)} min outside is not`
+          : `of ${Math.round(m.outdoorMinutes)} min walking and waiting — the ride is indoors`,
       )
     : mode.heatExposed
       ? stat(
           'Unshaded time',
           `${Math.round(m.exposedMinutes)} min`,
-          `${Math.round(m.shadeShare * 100)}% of this route has mapped canopy`,
+          feels
+            ? `${feels}, ${escapeHtml(band.label.toLowerCase())}`
+            : `${Math.round(m.shadeShare * 100)}% of this route has mapped canopy`,
         )
-      : stat('In traffic', formatDuration(route.duration), 'Air-conditioned, but still emitting');
+      : stat(
+          'In traffic',
+          formatDuration(route.duration),
+          feels ? `${feels} outside — you are not in it` : 'Air-conditioned, but still emitting',
+        );
 
   const carbon =
     m.co2Kg < (MODES.car.co2PerKm * m.km) / 1000
@@ -1261,13 +1368,23 @@ function renderDetail() {
       ${heatCard}
       ${carbon}
       ${
-        m.waterStops
+        // Ozone is Houston's own pollutant and it peaks on exactly the hot,
+        // still afternoons this app is about. It only takes a slot from the
+        // water stats when it is high enough to change what somebody does —
+        // and it matters most to the people breathing hardest.
+        now && Number.isFinite(now.aqi) && now.aqi >= 101 && mode.heatExposed
           ? stat(
-              'Water stops',
-              String(m.waterStops),
-              `longest dry stretch ${formatDistance(m.longestDryKm * 1000)}`,
+              'Air quality',
+              `${now.aqi} AQI`,
+              `${escapeHtml(aqiBand(now.aqi).label.toLowerCase())} · ozone ${Math.round(now.ozone)} µg/m³`,
             )
-          : stat('Beside green space', `${Math.round(m.greenShare * 100)}%`, 'parks, bayous, tree cover')
+          : m.waterStops
+            ? stat(
+                'Water stops',
+                String(m.waterStops),
+                `longest dry stretch ${formatDistance(m.longestDryKm * 1000)}`,
+              )
+            : stat('Beside green space', `${Math.round(m.greenShare * 100)}%`, 'parks, bayous, tree cover')
       }
       ${
         t?.rides.length
@@ -1294,6 +1411,230 @@ function renderDetail() {
               : 'It is also the shortest option available.')
       }
     </p>`;
+}
+
+/* -------------------------------------------------------------- heat --- */
+
+/** The Houston wall-clock string the trip is planned around. */
+function whenWall() {
+  return el('when-time').value || dateToHoustonWallTime(new Date());
+}
+
+/** Conditions over the span the selected route actually occupies. */
+function tripConditions() {
+  const route = state.routes[state.selected];
+  if (!route || !state.conditions) return null;
+  // A transit trip starts when its first vehicle does, not when you asked.
+  const start = route.transit?.startTime
+    ? dateToHoustonWallTime(route.transit.startTime)
+    : whenWall();
+  return conditionsOver(state.conditions, start, route.duration);
+}
+
+/**
+ * The hour strip: heat index across the afternoon, and a picker for it.
+ *
+ * This is the only chart in the app that is also a control, and that is the
+ * point of it. The route cards answer "which way"; this answers the question
+ * underneath, which in Houston is usually "should I go now at all". Clicking
+ * an hour re-plans at that hour — instantly for walking, cycling and driving,
+ * where the roads do not care what time it is, and with a fresh timetable
+ * lookup for METRO, where they very much do.
+ *
+ * Colour encodes the National Weather Service band rather than a continuous
+ * temperature, because the bands are the part that carries meaning. Five steps
+ * of one hue, light to dark, validated for lightness monotonicity rather than
+ * chosen by eye. The band is always named in text beside it.
+ */
+function renderHeat() {
+  const card = el('heat-card');
+  const route = state.routes[state.selected];
+  const conditions = state.conditions;
+  card.hidden = !route || !conditions;
+  if (card.hidden) return;
+
+  const startWall = route.transit?.startTime
+    ? dateToHoustonWallTime(route.transit.startTime)
+    : whenWall();
+  const hours = hoursFrom(conditions, startWall, 12);
+  if (!hours.length) {
+    // The forecast runs out long before METRO's timetable does.
+    card.hidden = true;
+    return;
+  }
+
+  const selectedStamp = state.heatHour || `${startWall.slice(0, 13)}:00`;
+  const now = tripConditions();
+  const band = now ? heatBand(now.heatIndex) : null;
+
+  el('heat-title').textContent = `Heat along the way · ${route.name}`;
+
+  // A driver is not in the weather, and telling them how many unshaded minutes
+  // they face — zero — while offering to find them a cooler hour is advice for
+  // somebody else's trip. The conditions still belong on screen for them,
+  // because they are the reason the other three modes look the way they do.
+  const exposedToIt = MODES[state.mode].heatExposed;
+
+  if (now && band) {
+    const exposed = Math.round(route.metrics.exposedMinutes);
+    const conditionsPart =
+      `Feels like <b>${Math.round(now.heatIndex)}°F</b> (${escapeHtml(band.label)}) — ` +
+      `air ${Math.round(now.tempF)}°F at ${Math.round(now.humidity)}% humidity.`;
+
+    el('heat-summary').innerHTML = exposedToIt
+      ? `${conditionsPart} You are outside and unshaded for <b>${exposed} min</b> of it` +
+        `${now.uv >= 6 ? `, under UV ${Math.round(now.uv)}` : ''}.`
+      : `${conditionsPart} You are in air conditioning for all ` +
+        `${formatDuration(route.duration)} of it — which is what the CO₂ below buys.`;
+  }
+
+  const label = (h) => {
+    const hour = h.hour % 12 === 0 ? 12 : h.hour % 12;
+    return `${hour}${h.hour < 12 ? 'a' : 'p'}`;
+  };
+
+  el('heat-strip').innerHTML =
+    `<div class="heat-strip">` +
+    hours
+      .map((h) => {
+        const hb = heatBand(h.heatIndex);
+        const on = h.stamp === selectedStamp;
+        // Every third tick, plus always the selected one, so the axis stays
+        // readable at sidebar width without losing the reader's place.
+        const showTick = hours.indexOf(h) % 3 === 0 || on;
+        return (
+          `<button type="button" class="heat-hour ${on ? 'is-on' : ''}" data-stamp="${h.stamp}"` +
+          ` title="${label(h)} — feels like ${Math.round(h.heatIndex)}°F, ${escapeHtml(hb?.label || '')}"` +
+          ` aria-label="${label(h)}, feels like ${Math.round(h.heatIndex)} degrees, ${escapeHtml(hb?.label || '')}">` +
+          `<span class="heat-bar" style="background:${hb?.color || 'var(--line)'}"></span>` +
+          `<span class="heat-tick">${showTick ? label(h) : '&nbsp;'}</span>` +
+          `</button>`
+        );
+      })
+      .join('') +
+    `</div><div class="heat-readout" id="heat-readout"></div>`;
+
+  // Only the bands actually on screen, so the legend describes this strip
+  // rather than the whole scale.
+  const shown = new Set(hours.map((h) => heatBand(h.heatIndex)?.label));
+  el('heat-legend').innerHTML = HEAT_BANDS.filter((b) => shown.has(b.label))
+    .map(
+      (b) =>
+        `<span class="profile-key"><i style="background:${b.color}"></i>${escapeHtml(b.label)}</span>`,
+    )
+    .join('');
+
+  // "Go later" is only advice when it is actually cooler later, when the
+  // difference is worth the wait, and when the better hour is near enough to
+  // still be the same plan. Left unbounded this degenerates into "travel at
+  // night", which is true of every hot place and helps nobody.
+  const advice = el('heat-advice');
+  const best = bestHourWithin(hours, selectedStamp, route.duration, 6);
+
+  // And only when the heat is worth escaping in the first place. On a 72°F
+  // morning it is still true that 3am would be cooler; it is just not a
+  // reason to change anybody's plans, and saying so every time would teach
+  // people to stop reading this box.
+  const worthMoving = exposedToIt && now && now.heatIndex >= 90;
+
+  if (worthMoving && best && best.heatIndex + 4 <= now.heatIndex) {
+    advice.hidden = false;
+    advice.classList.toggle('is-blocked', now.heatIndex >= 103);
+    advice.innerHTML =
+      `<b>Leaving at ${label(best.hour)} is ${Math.round(now.heatIndex - best.heatIndex)}°F easier.</b> ` +
+      `This trip would feel like ${Math.round(best.heatIndex)}°F then, against ` +
+      `${Math.round(now.heatIndex)}°F now. Same route, same shade — different afternoon.`;
+  } else if (exposedToIt && band?.advice && now.heatIndex >= 90) {
+    advice.hidden = false;
+    advice.classList.toggle('is-blocked', now.heatIndex >= 103);
+    advice.innerHTML = `<b>${escapeHtml(band.label)}.</b> ${escapeHtml(band.advice)}`;
+  } else {
+    advice.hidden = true;
+  }
+
+  const air = now && Number.isFinite(now.aqi) ? aqiBand(now.aqi) : null;
+  el('heat-source').innerHTML =
+    `Heat index computed from Open-Meteo temperature and humidity with the ` +
+    `<a href="https://www.weather.gov/safety/heat-index" target="_blank" rel="noopener">NWS</a> ` +
+    `equation — it assumes shade, so in direct sun read it high.` +
+    (air
+      ? ` Air quality <b>${now.aqi}</b> US AQI (${escapeHtml(air.label)}), ozone ` +
+        `${Math.round(now.ozone)} µg/m³ — modelled, not a nearby monitor.`
+      : '');
+
+  bindHeatStrip(hours);
+}
+
+/**
+ * The easiest hour to make this trip in, within `horizon` hours of the one
+ * picked.
+ *
+ * Every candidate is scored the way the headline is — averaged over the span
+ * the trip actually occupies — so the two figures can be put in one sentence
+ * without comparing a single hour against a multi-hour average and printing
+ * two different temperatures for the same departure.
+ */
+function bestHourWithin(hours, selectedStamp, durationSec, horizon) {
+  const from = hours.findIndex((h) => h.stamp === selectedStamp);
+  if (from < 0 || !state.conditions) return null;
+
+  let best = null;
+  for (const hour of hours.slice(from + 1, from + 1 + horizon)) {
+    const span = conditionsOver(state.conditions, hour.stamp.slice(0, 16), durationSec);
+    if (!span || !Number.isFinite(span.heatIndex)) continue;
+    if (!best || span.heatIndex < best.heatIndex) best = { hour, heatIndex: span.heatIndex };
+  }
+  return best;
+}
+
+function bindHeatStrip(hours) {
+  const readout = el('heat-readout');
+  const say = (h) => {
+    const hb = heatBand(h.heatIndex);
+    const air = Number.isFinite(h.aqi) ? aqiBand(h.aqi) : null;
+    readout.innerHTML =
+      `<b>${Math.round(h.heatIndex)}°F</b> ${escapeHtml(hb?.label || '')} · ` +
+      `air ${Math.round(h.tempF)}°F, ${Math.round(h.humidity)}% humidity` +
+      (Number.isFinite(h.uv) ? ` · UV ${Math.round(h.uv)}` : '') +
+      (air ? ` · AQI ${h.aqi}` : '') +
+      (h.rainPct >= 30 ? ` · ${h.rainPct}% rain` : '');
+  };
+
+  el('heat-strip')
+    .querySelectorAll('.heat-hour')
+    .forEach((node) => {
+      const hour = hours.find((h) => h.stamp === node.dataset.stamp);
+      if (!hour) return;
+      node.addEventListener('pointerenter', () => say(hour));
+      node.addEventListener('focus', () => say(hour));
+      node.addEventListener('click', () => pickHour(hour));
+    });
+  el('heat-strip').addEventListener('pointerleave', () => {
+    readout.textContent = '';
+  });
+}
+
+/**
+ * Re-plan for a different hour.
+ *
+ * Roads do not change with the clock, so walking, cycling and driving re-read
+ * the forecast they already have and re-render on the spot. METRO's timetable
+ * does change, so that one goes back to the router.
+ */
+function pickHour(hour) {
+  state.heatHour = hour.stamp;
+  el('when-time').value = hour.stamp.slice(0, 16);
+
+  // Roads do not change with the clock, so this is a re-read of a forecast
+  // already in memory and the answer is on screen immediately. METRO's
+  // timetable does change, and that needs a search — which only the button
+  // starts, so say so and let the ring move in the meantime.
+  if (isTransit()) {
+    renderHeat();
+    markStale('Departure time changed.');
+    return;
+  }
+  rescore();
 }
 
 /* ----------------------------------------------------------- transit --- */
@@ -1632,7 +1973,6 @@ function focusWater(index) {
  * own zone is.
  */
 function setupWhenControls() {
-  const field = el('when-field');
   const time = el('when-time');
   const kind = el('when-kind');
 
@@ -1641,8 +1981,18 @@ function setupWhenControls() {
   };
   reset();
 
+  // Changing the hour means something different per mode. METRO's answer
+  // depends on the timetable, so it goes back to the router; a road does not
+  // care what time it is, so walking, cycling and driving only need the
+  // conditions re-read against routes they already have.
   const rerun = () => {
-    if (isTransit() && state.places.origin && state.places.destination) compare();
+    if (!state.places.origin || !state.places.destination) return;
+    state.heatHour = null;
+    if (isTransit()) {
+      markStale('Departure time changed.');
+    } else if (state.routes.length) {
+      rescore();
+    }
   };
 
   kind.addEventListener('change', () => {
@@ -1658,16 +2008,23 @@ function setupWhenControls() {
   el('step-free').addEventListener('change', (event) => {
     state.stepFree = event.target.checked;
     state.stepFreeCost = null;
-    rerun();
+    if (!state.places.origin || !state.places.destination) return;
+    markStale(event.target.checked ? 'Step-free routing turned on.' : 'Step-free routing turned off.');
   });
 
   return {
-    show(visible) {
-      field.hidden = !visible;
-      // A stale "leave at" from ten minutes ago plans the wrong trip.
-      if (visible && new Date(houstonWallTimeToDate(time.value)) < Date.now() - 60 * 60 * 1000) {
-        reset();
-      }
+    // Every mode is time-aware now — only what the time *does* differs, and
+    // the hint says which.
+    show(transit) {
+      el('when-kind').hidden = !transit;
+      // Arriving-by and step-free are both questions about a timetable, so
+      // they belong to METRO only — the time itself belongs to every mode,
+      // because every mode happens in weather.
+      el('step-free-field').hidden = !transit;
+      el('when-hint').textContent = transit
+        ? 'Houston time. METRO timetables are scheduled, not live — a late bus still shows on time here.'
+        : 'Houston time. Changes the heat you travel in, not the route.';
+      if (new Date(houstonWallTimeToDate(time.value)) < Date.now() - 60 * 60 * 1000) reset();
     },
   };
 }
@@ -1859,8 +2216,11 @@ function init() {
       .querySelectorAll('.mode')
       .forEach((b) => b.classList.toggle('is-active', b === button));
     when.show(isTransit());
-    // Mode changes the road network, so the routes have to be re-fetched.
-    if (state.rawRoutes?.length) compare();
+    // A different mode is a different road network, so the routes on screen
+    // are not merely stale, they are for the wrong vehicle. They stay put
+    // rather than vanishing — swapping mode to look and swapping back should
+    // not cost a re-search — but they are labelled plainly.
+    markStale(`Mode changed to ${MODES[state.mode].label}.`);
   });
 
   el('compare-btn').addEventListener('click', compare);
@@ -1873,7 +2233,7 @@ function init() {
     state.places = { origin: destination, destination: origin };
     if (destination) setMarker('origin', destination);
     if (origin) setMarker('destination', origin);
-    if (state.places.origin && state.places.destination) compare();
+    markStale('Start and finish swapped.');
   });
 
   el('locate-btn').addEventListener('click', async () => {
@@ -1883,7 +2243,7 @@ function init() {
       applyPlace('origin', place);
       map.setView(place.coord, 14);
       setStatus(`Start set to ${place.label}.`);
-      if (state.places.destination) compare();
+      markStale('Start changed.');
     } catch (err) {
       setStatus(err.message, true);
     }
@@ -1951,6 +2311,7 @@ function init() {
     rescore();
   });
 
+  when.show(isTransit());
   renderScoreModeHint();
   watchViewport();
 

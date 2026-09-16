@@ -128,6 +128,15 @@ input[type="text"],
   border-color: transparent;
 }
 
+/* The `hidden` attribute is a UA rule of the lowest possible weight, so any
+   class here that sets `display` silently defeats it — which is how the
+   step-free toggle (`display: grid`) kept showing in Bike mode after being
+   hidden in JS. Settle it once, for every element in the app, rather than
+   per component. */
+[hidden] {
+  display: none !important;
+}
+
 .mode-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -340,6 +349,112 @@ input[type="text"],
   margin-top: 9px;
   display: grid;
   gap: 4px;
+}
+
+/* --------------------------------------------------------------- stale --- */
+
+/* Nothing in this app searches on its own, so when an input changes the
+   results on screen are simply the previous answer. Saying that plainly beats
+   both of the alternatives: silently re-running an expensive search, or
+   leaving a stale list looking current. */
+.stale-note {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border-left: 3px solid var(--warn);
+  background: #fdf1e0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #7c4510;
+}
+
+.stale-chip {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 99px;
+  background: #fdf1e0;
+  color: var(--warn);
+  vertical-align: 2px;
+}
+
+/* The button is the only way to run a search now, so when one is pending it
+   stops being a quiet default and asks for the click. */
+.primary.is-pending {
+  box-shadow: 0 0 0 3px rgba(180, 83, 9, 0.25);
+}
+
+/* ---------------------------------------------------------------- heat --- */
+
+/* The hour strip is a picker as well as a chart, so every cell is a real
+   button: keyboard reachable, with a hit target taller than the mark it
+   draws. Cells are separated by a surface gap rather than a border, so the
+   ramp's own steps carry the reading. */
+.heat-strip {
+  display: flex;
+  gap: 2px;
+  margin: 2px 0 6px;
+}
+
+.heat-hour {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  display: grid;
+  gap: 3px;
+  justify-items: center;
+}
+
+.heat-bar {
+  width: 100%;
+  height: 30px;
+  border-radius: 4px;
+  background: var(--line);
+  box-shadow: inset 0 0 0 0 #fff;
+}
+
+/* The selected hour is ringed in ink, not recoloured: the cell has to keep
+   showing its own heat band while it is selected. */
+.heat-hour.is-on .heat-bar {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px #111827;
+}
+
+.heat-hour:hover .heat-bar,
+.heat-hour:focus-visible .heat-bar {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 3px var(--muted);
+}
+
+.heat-hour:focus-visible {
+  outline: none;
+}
+
+.heat-tick {
+  font-size: 9.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.heat-hour.is-on .heat-tick {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.heat-readout {
+  font-size: 12px;
+  color: var(--muted);
+  min-height: 1.3em;
+  margin-top: 2px;
+}
+
+.heat-readout b {
+  color: var(--ink);
 }
 
 /* ------------------------------------------------------------- transit --- */
