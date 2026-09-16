@@ -121,7 +121,7 @@
               Houston time.
             </p>
 
-            <label class="toggle" for="step-free">
+            <label class="toggle" for="step-free" id="step-free-field">
               <input type="checkbox" id="step-free" />
               <span class="toggle-text">
                 <b>♿ Step-free routes only</b>
@@ -136,11 +136,12 @@
           </div>
 
           <button id="compare-btn" class="primary">Compare routes</button>
+          <p id="stale-note" class="stale-note" role="status" aria-live="polite" hidden></p>
           <p id="status" class="status" role="status" aria-live="polite"></p>
         </section>
 
         <section class="card" id="results-card" hidden>
-          <h2>Routes</h2>
+          <h2>Routes <span class="stale-chip" id="stale-chip" hidden>outdated</span></h2>
           <div id="routes"></div>
         </section>
 

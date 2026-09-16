@@ -128,6 +128,15 @@ input[type="text"],
   border-color: transparent;
 }
 
+/* The `hidden` attribute is a UA rule of the lowest possible weight, so any
+   class here that sets `display` silently defeats it — which is how the
+   step-free toggle (`display: grid`) kept showing in Bike mode after being
+   hidden in JS. Settle it once, for every element in the app, rather than
+   per component. */
+[hidden] {
+  display: none !important;
+}
+
 .mode-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -340,6 +349,41 @@ input[type="text"],
   margin-top: 9px;
   display: grid;
   gap: 4px;
+}
+
+/* --------------------------------------------------------------- stale --- */
+
+/* Nothing in this app searches on its own, so when an input changes the
+   results on screen are simply the previous answer. Saying that plainly beats
+   both of the alternatives: silently re-running an expensive search, or
+   leaving a stale list looking current. */
+.stale-note {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border-left: 3px solid var(--warn);
+  background: #fdf1e0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #7c4510;
+}
+
+.stale-chip {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 99px;
+  background: #fdf1e0;
+  color: var(--warn);
+  vertical-align: 2px;
+}
+
+/* The button is the only way to run a search now, so when one is pending it
+   stops being a quiet default and asks for the click. */
+.primary.is-pending {
+  box-shadow: 0 0 0 3px rgba(180, 83, 9, 0.25);
 }
 
 /* ---------------------------------------------------------------- heat --- */

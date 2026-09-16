@@ -82,6 +82,9 @@ const state = {
   stepFree: false,
   stepFreeCost: null,
   queued: false,
+  // What has changed since the routes on screen were found. Null when they
+  // are current. Nothing here ever triggers a search by itself.
+  stale: null,
   transitNote: '',
 };
 
@@ -188,7 +191,8 @@ function setMarker(role, place) {
         setStatus('Naming the spot you dropped…');
         const dropped = await describeCoordinate([lat, lng]);
         applyPlace(role, dropped);
-        compare();
+        setStatus(`${role === 'origin' ? 'Start' : 'Finish'} moved to ${dropped.label}.`);
+        markStale(`${role === 'origin' ? 'Start' : 'Finish'} moved.`);
       });
     state.markers[role] = marker;
   }
@@ -537,9 +541,8 @@ map.on('click', async (event) => {
   setStatus('Naming that spot…');
   const place = await describeCoordinate(coord);
   applyPlace(role, place);
-
-  if (state.places.origin && state.places.destination) compare();
-  else setStatus(`${role === 'origin' ? 'Start' : 'Finish'} set to ${place.label}.`);
+  setStatus(`${role === 'origin' ? 'Start' : 'Finish'} set to ${place.label}.`);
+  markStale(`${role === 'origin' ? 'Start' : 'Finish'} changed.`);
 });
 
 /* ------------------------------------------------------------- status --- */
@@ -548,6 +551,50 @@ function setStatus(message, isError = false) {
   const node = el('status');
   node.textContent = message;
   node.classList.toggle('is-error', isError);
+}
+
+/**
+ * Record that an input changed without going and fetching anything.
+ *
+ * Searching is expensive — a comparison is an OSRM call, an Overpass download
+ * over the corridor, and for METRO three timetable queries — and it used to
+ * fire on its own from seven different places: picking a suggestion, clicking
+ * the map, dragging a pin, swapping ends, geolocating, switching mode, moving
+ * the departure time. Now those only say what changed; the button does the work.
+ *
+ * The one thing that must not happen is a stale list looking current, so the
+ * results keep their place on screen and are labelled for what they are.
+ */
+function markStale(reason) {
+  if (!state.routes.length && !state.rawRoutes.length) {
+    // Nothing on screen to go stale — just let the button speak for itself.
+    state.stale = null;
+    renderStale();
+    return;
+  }
+  state.stale = reason;
+  renderStale();
+}
+
+function clearStale() {
+  state.stale = null;
+  renderStale();
+}
+
+function renderStale() {
+  const note = el('stale-note');
+  const chip = el('stale-chip');
+  const button = el('compare-btn');
+
+  note.hidden = !state.stale;
+  chip.hidden = !state.stale;
+  button.classList.toggle('is-pending', Boolean(state.stale));
+
+  if (state.stale) {
+    note.innerHTML =
+      `${escapeHtml(state.stale)} The routes below are from your last search — ` +
+      `hit <b>Compare routes</b> to update them.`;
+  }
 }
 
 function setBusy(busy) {
@@ -649,8 +696,13 @@ function createCombo(role, inputId, listId) {
       applyPlace(role, place);
     }
 
-    // Both ends known? Go straight to comparing — that is why they typed it.
-    if (state.places.origin && state.places.destination) compare();
+    const label = role === 'origin' ? 'Start' : 'Finish';
+    setStatus(
+      state.places.origin && state.places.destination
+        ? `${label} set. Hit Compare routes when you are ready.`
+        : `${label} set to ${state.places[role].label}.`,
+    );
+    markStale(`${label} changed.`);
   }
 
   async function search() {
@@ -666,8 +718,12 @@ function createCombo(role, inputId, listId) {
   }
 
   input.addEventListener('input', () => {
-    // Typing invalidates the previously resolved place for this field.
+    // Typing invalidates the previously resolved place for this field, which
+    // is exactly what makes the routes on screen out of date. (Setting the
+    // box from code does not fire this, so picking a suggestion cannot
+    // trigger it twice.)
     state.places[role] = null;
+    markStale(`${role === 'origin' ? 'Start' : 'Finish'} changed.`);
     clearTimeout(timer);
     timer = setTimeout(search, 220);
   });
@@ -745,6 +801,7 @@ async function compare() {
     return;
   }
   state.queued = false;
+  clearStale();
   setBusy(true);
   setStatus('Finding your start and finish…');
 
@@ -1567,8 +1624,14 @@ function bindHeatStrip(hours) {
 function pickHour(hour) {
   state.heatHour = hour.stamp;
   el('when-time').value = hour.stamp.slice(0, 16);
+
+  // Roads do not change with the clock, so this is a re-read of a forecast
+  // already in memory and the answer is on screen immediately. METRO's
+  // timetable does change, and that needs a search — which only the button
+  // starts, so say so and let the ring move in the meantime.
   if (isTransit()) {
-    compare();
+    renderHeat();
+    markStale('Departure time changed.');
     return;
   }
   rescore();
@@ -1926,7 +1989,7 @@ function setupWhenControls() {
     if (!state.places.origin || !state.places.destination) return;
     state.heatHour = null;
     if (isTransit()) {
-      compare();
+      markStale('Departure time changed.');
     } else if (state.routes.length) {
       rescore();
     }
@@ -1945,7 +2008,8 @@ function setupWhenControls() {
   el('step-free').addEventListener('change', (event) => {
     state.stepFree = event.target.checked;
     state.stepFreeCost = null;
-    rerun();
+    if (!state.places.origin || !state.places.destination) return;
+    markStale(event.target.checked ? 'Step-free routing turned on.' : 'Step-free routing turned off.');
   });
 
   return {
@@ -1953,6 +2017,10 @@ function setupWhenControls() {
     // the hint says which.
     show(transit) {
       el('when-kind').hidden = !transit;
+      // Arriving-by and step-free are both questions about a timetable, so
+      // they belong to METRO only — the time itself belongs to every mode,
+      // because every mode happens in weather.
+      el('step-free-field').hidden = !transit;
       el('when-hint').textContent = transit
         ? 'Houston time. METRO timetables are scheduled, not live — a late bus still shows on time here.'
         : 'Houston time. Changes the heat you travel in, not the route.';
@@ -2148,8 +2216,11 @@ function init() {
       .querySelectorAll('.mode')
       .forEach((b) => b.classList.toggle('is-active', b === button));
     when.show(isTransit());
-    // Mode changes the road network, so the routes have to be re-fetched.
-    if (state.rawRoutes?.length) compare();
+    // A different mode is a different road network, so the routes on screen
+    // are not merely stale, they are for the wrong vehicle. They stay put
+    // rather than vanishing — swapping mode to look and swapping back should
+    // not cost a re-search — but they are labelled plainly.
+    markStale(`Mode changed to ${MODES[state.mode].label}.`);
   });
 
   el('compare-btn').addEventListener('click', compare);
@@ -2162,7 +2233,7 @@ function init() {
     state.places = { origin: destination, destination: origin };
     if (destination) setMarker('origin', destination);
     if (origin) setMarker('destination', origin);
-    if (state.places.origin && state.places.destination) compare();
+    markStale('Start and finish swapped.');
   });
 
   el('locate-btn').addEventListener('click', async () => {
@@ -2172,7 +2243,7 @@ function init() {
       applyPlace('origin', place);
       map.setView(place.coord, 14);
       setStatus(`Start set to ${place.label}.`);
-      if (state.places.destination) compare();
+      markStale('Start changed.');
     } catch (err) {
       setStatus(err.message, true);
     }

@@ -278,6 +278,38 @@ EPA's "Unhealthy for sensitive groups" line **and** the mode is one you breathe
 hard in. It is modelled (CAMS via Open-Meteo), not a reading from a monitor down
 the road, and the UI says so.
 
+## Nothing searches on its own
+
+A comparison is expensive: an OSRM call, an Overpass download over the whole
+corridor, and for METRO three timetable queries on top. It used to fire by
+itself from seven places — picking a suggestion, clicking the map, dragging a
+pin, swapping ends, geolocating, switching mode, moving the departure time — so
+setting up a trip could kick off four searches before you had finished
+describing it, on public instances that take tens of seconds when they are busy.
+
+**Only the button searches now.** Everything else says what changed:
+
+> Mode changed to Bike. The routes below are from your last search — hit
+> **Compare routes** to update them.
+
+The results stay on screen rather than vanishing, because flipping to another
+mode to look and flipping back should not cost a re-search — but they carry an
+`outdated` chip and the button takes a ring, so a stale list can never pass for
+a current one.
+
+The line between the two is whether an answer needs the network:
+
+| Action | What happens |
+| --- | --- |
+| Weight sliders, absolute ↔ relative | re-scored from data already in memory, instantly |
+| Picking an hour on walk / bike / drive | re-read of a forecast already loaded — ~50 ms, no request |
+| Picking an hour on METRO | marked stale; the timetable genuinely differs by hour |
+| Endpoints, mode, swap, step-free | marked stale |
+| **Compare routes**, or Enter in a search box | searches |
+
+Enter still works, because pressing it in a search box is someone asking for a
+search, not the app deciding to run one.
+
 ## Water stops
 
 Drinking fountains (`amenity=drinking_water`, `water_point`, `drinking_water=yes`) within 120 m
