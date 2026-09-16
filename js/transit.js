@@ -211,12 +211,41 @@ async function plan(params, signal) {
     } catch {
       /* non-JSON error body */
     }
-    throw new Error(detail || `The transit planner returned ${res.status}.`);
+    throw new Error(humanise(detail) || `The transit planner returned ${res.status}.`);
   }
 
   const data = await res.json();
   cache.set(key, { at: Date.now(), data });
   return data;
+}
+
+/**
+ * The router's errors are written for whoever is running it. The one people
+ * actually hit — asking for a date the loaded timetable does not cover — comes
+ * back as "query time 2030-06-15 19:00 is outside of loaded timetable window
+ * [2026-08-15 00:00, 2027-09-15 00:00[", half-open bracket and all. Say it in
+ * the terms the person typed instead.
+ */
+function humanise(detail) {
+  const window = /outside of loaded timetable window \[([\d-]+)[^,]*, ([\d-]+)/.exec(detail || '');
+  if (!window) return detail;
+
+  const day = (iso) => {
+    const date = new Date(`${iso}T12:00:00Z`);
+    return Number.isNaN(date.getTime())
+      ? iso
+      : new Intl.DateTimeFormat('en-US', {
+          timeZone: HOUSTON_TZ,
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric',
+        }).format(date);
+  };
+
+  return (
+    `METRO's published timetable only covers ${day(window[1])} to ${day(window[2])}. ` +
+    `Pick a date in that range.`
+  );
 }
 
 const place = (coord) => `${coord[0].toFixed(6)},${coord[1].toFixed(6)}`;

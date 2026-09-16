@@ -740,12 +740,23 @@ async function compare() {
     const destination = await ensurePlace('destination');
 
     const straight = haversine(origin.coord, destination.coord);
+
+    // Start and finish on the same spot produces a zero-length "route" that
+    // scores like any other and wins every badge going — fastest, shortest,
+    // greenest — on a trip nobody is taking.
+    if (straight < 25) {
+      clearResults();
+      setStatus('Start and finish are the same place. Pick two different points.', true);
+      return;
+    }
+
     const ceiling = MODES[state.mode].maxTripKm * 1000;
     if (straight > ceiling) {
       const suggestion = state.mode === 'foot' ? 'Bike or Drive' : 'Drive';
       const tooFar = isTransit()
         ? "further than METRO's network reaches"
         : `too far to ${MODES[state.mode].label.toLowerCase()}`;
+      clearResults();
       setStatus(
         `That is ${Math.round(straight / 1000)} km in a straight line — ${tooFar}. ` +
           `Try ${suggestion}.`,
@@ -822,7 +833,15 @@ async function compare() {
       // four-hour wait. Judge transit on time rather than distance: the ride
       // length is not the rider's cost, the clock is.
       const quickest = Math.min(...candidates.map((r) => r.duration));
-      candidates = candidates.filter((r) => r.duration <= Math.max(quickest * 2.2, quickest + 1800));
+      const tightest = Math.min(...candidates.map((r) => r.distance));
+      candidates = candidates.filter(
+        (r) =>
+          r.duration <= Math.max(quickest * 2.2, quickest + 1800) &&
+          // Time alone lets an absurdity through: riding the Red Line out,
+          // a bus across, and the Red Line back covers 20 km for a 5 km trip
+          // and still lands inside the time cap.
+          r.distance <= tightest * 2.5,
+      );
     } else {
       const shortest = Math.min(...candidates.map((r) => r.distance));
       candidates = candidates.filter((r) => r.distance <= shortest * 1.9);
@@ -861,6 +880,7 @@ async function compare() {
     }
   } catch (err) {
     console.error(err);
+    clearResults();
     setStatus(err.message || 'Something went wrong. Try again.', true);
   } finally {
     setBusy(false);
@@ -978,6 +998,44 @@ function describeRun(count, layer) {
     `${layer.counts.trees.toLocaleString()} mapped trees and ` +
     `${layer.counts.water.toLocaleString()} drinking fountains, from ${where}.${scope}`
   );
+}
+
+/**
+ * Take the last result off the screen.
+ *
+ * A failed run has already moved the pins to the points it rejected, so
+ * leaving the previous routes drawn puts a Houston route on the map under a
+ * destination pin in Dallas, with an error message above it — three things on
+ * screen that disagree. Better to show the error and nothing else.
+ */
+function clearResults() {
+  state.rawRoutes = [];
+  state.routes = [];
+  state.directions = [];
+  state.activeStep = null;
+  state.selected = 0;
+  state.stepFreeCost = null;
+  clearRouteLines();
+  if (state.waterLayer) {
+    map.removeLayer(state.waterLayer);
+    state.waterLayer = null;
+  }
+  if (state.labelLayer) {
+    map.removeLayer(state.labelLayer);
+    state.labelLayer = null;
+  }
+  for (const id of [
+    'results-card',
+    'transit-card',
+    'profile-card',
+    'directions-card',
+    'water-card',
+    'detail-card',
+  ]) {
+    el(id).hidden = true;
+  }
+  el('legend').hidden = true;
+  updatePeek();
 }
 
 function rescore({ fit = false } = {}) {
