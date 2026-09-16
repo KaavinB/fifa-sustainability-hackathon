@@ -211,12 +211,41 @@ async function plan(params, signal) {
     } catch {
       /* non-JSON error body */
     }
-    throw new Error(detail || `The transit planner returned ${res.status}.`);
+    throw new Error(humanise(detail) || `The transit planner returned ${res.status}.`);
   }
 
   const data = await res.json();
   cache.set(key, { at: Date.now(), data });
   return data;
+}
+
+/**
+ * The router's errors are written for whoever is running it. The one people
+ * actually hit — asking for a date the loaded timetable does not cover — comes
+ * back as "query time 2030-06-15 19:00 is outside of loaded timetable window
+ * [2026-08-15 00:00, 2027-09-15 00:00[", half-open bracket and all. Say it in
+ * the terms the person typed instead.
+ */
+function humanise(detail) {
+  const window = /outside of loaded timetable window \[([\d-]+)[^,]*, ([\d-]+)/.exec(detail || '');
+  if (!window) return detail;
+
+  const day = (iso) => {
+    const date = new Date(`${iso}T12:00:00Z`);
+    return Number.isNaN(date.getTime())
+      ? iso
+      : new Intl.DateTimeFormat('en-US', {
+          timeZone: HOUSTON_TZ,
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric',
+        }).format(date);
+  };
+
+  return (
+    `METRO's published timetable only covers ${day(window[1])} to ${day(window[2])}. ` +
+    `Pick a date in that range.`
+  );
 }
 
 const place = (coord) => `${coord[0].toFixed(6)},${coord[1].toFixed(6)}`;
@@ -525,6 +554,31 @@ function dedupeByRides(routes, { arriveBy = false } = {}) {
   return [...best.values()];
 }
 
+// How far from the time asked about a trip may sit and still be an answer to
+// the question. Generous enough for an hourly route, short enough that a
+// search variant finding nothing today cannot answer with tomorrow morning.
+const WINDOW_MS = 3 * 60 * 60 * 1000;
+
+/**
+ * Keep only the trips that actually sit near the requested time.
+ *
+ * Necessary because the searches run independently: ask for rail-only,
+ * step-free, at 5pm, find nothing, and MOTIS answers with the first trip that
+ * does work — which can be 5am tomorrow. Merged in unfiltered it sorts to the
+ * top as the "earliest" departure and quietly becomes the headline result.
+ */
+function withinWindow(routes, when, arriveBy) {
+  const target = when.getTime();
+  return routes.filter((route) => {
+    const at = arriveBy
+      ? route.transit.endTime.getTime()
+      : route.transit.startTime.getTime();
+    return arriveBy
+      ? at <= target + 60 * 1000 && at >= target - WINDOW_MS
+      : at >= target - 60 * 1000 && at <= target + WINDOW_MS;
+  });
+}
+
 /* --------------------------------------------------------------- plan --- */
 
 // Three searches, because one is not enough to compare anything. MOTIS returns
@@ -533,6 +587,23 @@ function dedupeByRides(routes, { arriveBy = false } = {}) {
 // comparison. Asking bus-only and rail-only as well surfaces the alternative
 // that the optimal set hides, and every one of them is still a real routed
 // trip on METRO's published timetable rather than a plausible-looking guess.
+// MOTIS budgets the first and last walking legs in SECONDS (900 each by
+// default), and its wheelchair profile walks at roughly 0.69 m/s against about
+// 1.03 on foot. Left alone that makes the two profiles cover different
+// GROUND: 900s is ~930 m on foot but only ~620 m in a wheelchair, and any trip
+// whose last leg falls in between is silently dropped from the step-free
+// results only.
+//
+// That is not an accessibility finding, it is a unit mismatch — and it reads
+// as one. Rice to NRG loses METRORail entirely under the defaults, because the
+// 971 m from Houston Stadium Stn takes 20 minutes at wheelchair speed; raise
+// the budget and the Red Line comes straight back, on the same departure.
+// METRORail has level boarding throughout and the feed marks it accessible.
+//
+// So each profile gets the budget that buys it the same ~1.2 km of walking,
+// and the two searches become comparable.
+const WALK_BUDGET_S = { FOOT: 1200, WHEELCHAIR: 1800 };
+
 const SEARCHES = [
   { key: 'any', label: 'best available' },
   { key: 'bus', label: 'bus only', transitModes: 'BUS' },
@@ -542,9 +613,19 @@ const SEARCHES = [
 /**
  * Plan a Houston METRO trip.
  *
- * @returns {{routes: object[], walkOnly: object|null, window: {from: Date, to: Date}}}
+ * `stepFree` routes the walking parts — the first mile, the last mile, and
+ * every transfer between them — with MOTIS's WHEELCHAIR pedestrian profile
+ * instead of FOOT. It does not filter the vehicles: METRO's fleet is marked
+ * accessible throughout its feed, so the constraint in Houston is the path to
+ * the stop, not the bus at it.
+ *
+ * @returns {{routes: object[], walkOnly: object|null, stepFreeCost: object|null}}
  */
-export async function planTransit(origin, destination, { when, arriveBy = false, signal } = {}) {
+export async function planTransit(
+  origin,
+  destination,
+  { when, arriveBy = false, stepFree = false, signal } = {},
+) {
   const time = (when ?? new Date()).toISOString();
   const base = {
     fromPlace: place(origin),
@@ -555,7 +636,9 @@ export async function planTransit(origin, destination, { when, arriveBy = false,
     searchWindow: String(TRANSIT_SEARCH_WINDOW_S),
     numItineraries: '4',
     directModes: 'WALK',
-    pedestrianProfile: 'FOOT',
+    pedestrianProfile: stepFree ? 'WHEELCHAIR' : 'FOOT',
+    maxPreTransitTime: String(WALK_BUDGET_S[stepFree ? 'WHEELCHAIR' : 'FOOT']),
+    maxPostTransitTime: String(WALK_BUDGET_S[stepFree ? 'WHEELCHAIR' : 'FOOT']),
   };
 
   const responses = await Promise.allSettled(
@@ -570,9 +653,14 @@ export async function planTransit(origin, destination, { when, arriveBy = false,
     throw new Error(reason?.message || 'The transit planner could not be reached.');
   }
 
+  const asked = when ?? new Date();
   const itineraries = ok.flatMap((data) => data.itineraries || []);
   const routes = dedupeByRides(
-    itineraries.map(toRoute).filter((route) => route.points.length > 1),
+    withinWindow(
+      itineraries.map(toRoute).filter((route) => route.points.length > 1),
+      asked,
+      arriveBy,
+    ),
     { arriveBy },
   );
 
@@ -581,12 +669,81 @@ export async function planTransit(origin, destination, { when, arriveBy = false,
   // useful than an empty list.
   const directs = ok.flatMap((data) => data.direct || []);
   const walkOnly = directs.length
-    ? dedupeByRides(directs.map(toRoute).filter((route) => route.points.length > 1), { arriveBy })[0] ||
-      null
+    ? dedupeByRides(directs.map(toRoute).filter((route) => route.points.length > 1), {
+        arriveBy,
+      })[0] || null
     : null;
 
   // Soonest first; the UI re-sorts by score once they are all measured.
   routes.sort((a, b) => a.transit.startTime - b.transit.startTime);
 
-  return { routes, walkOnly };
+  return {
+    routes,
+    walkOnly,
+    stepFreeCost: stepFree ? await stepFreeCostOf(base, routes, asked, arriveBy, signal) : null,
+  };
+}
+
+/**
+ * What routing step-free costs on this trip.
+ *
+ * A toggle that silently returns a slower trip teaches nobody anything. One
+ * extra unrestricted search — not another three — prices the difference, so
+ * the app can say "step-free adds 22 minutes and two transfers here" instead
+ * of quietly handing over a worse itinerary.
+ *
+ * A null result means there was nothing to compare against; `blocked` means
+ * the trip exists on foot and does not step-free, which is the finding worth
+ * printing loudest.
+ */
+async function stepFreeCostOf(base, routes, when, arriveBy, signal) {
+  let walking;
+  try {
+    walking = await plan(
+      {
+        ...base,
+        pedestrianProfile: 'FOOT',
+        maxPreTransitTime: String(WALK_BUDGET_S.FOOT),
+        maxPostTransitTime: String(WALK_BUDGET_S.FOOT),
+      },
+      signal,
+    );
+  } catch {
+    return null;
+  }
+
+  // Same window as the step-free set, or the comparison prices time-of-day
+  // service levels rather than step-free access.
+  const onFoot = withinWindow(
+    (walking.itineraries || [])
+      .map(toRoute)
+      .filter((route) => route.points.length > 1 && route.transit.rides.length),
+    when,
+    arriveBy,
+  );
+  if (!onFoot.length) return null;
+
+  const fastest = (list) => list.reduce((a, b) => (b.duration < a.duration ? b : a));
+  const best = fastest(onFoot);
+
+  if (!routes.length) {
+    return { blocked: true, baseline: describeTrip(best) };
+  }
+
+  const step = fastest(routes);
+  return {
+    blocked: false,
+    minutes: Math.round((step.duration - best.duration) / 60),
+    transfers: step.transit.transfers - best.transit.transfers,
+    baseline: describeTrip(best),
+    stepFree: describeTrip(step),
+  };
+}
+
+function describeTrip(route) {
+  return {
+    routes: route.transit.rides.map((ride) => ride.shortName || ride.longName),
+    minutes: Math.round(route.duration / 60),
+    transfers: route.transit.transfers,
+  };
 }
