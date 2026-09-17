@@ -664,7 +664,10 @@ function focusRoute(index) {
 
 function armPick(role) {
   state.pick = state.pick === role ? null : role;
-  document.querySelectorAll('.pick-btn').forEach((btn) => {
+  // Scoped to the pick buttons only. The layer toggles beside them share the
+  // class and own their own armed state, and an unscoped query cleared their
+  // highlight while their layer was still on the map.
+  document.querySelectorAll('.pick-btn[data-pick]').forEach((btn) => {
     btn.classList.toggle('is-armed', btn.dataset.pick === state.pick);
   });
   map.getContainer().classList.toggle('map-picking', Boolean(state.pick));
@@ -963,14 +966,25 @@ async function compare() {
 
     const ceiling = MODES[state.mode].maxTripKm * 1000;
     if (straight > ceiling) {
-      const suggestion = state.mode === 'foot' ? 'Bike or Drive' : 'Drive';
+      // Only suggest modes that actually clear this distance. Naming one that
+      // does not just moves the refusal one click away: at 232 km "try Bike"
+      // was a dead end, because bike stops at 120.
+      const viable = Object.entries(MODES)
+        .filter(([key, cfg]) => key !== state.mode && straight <= (cfg.maxTripKm ?? Infinity) * 1000)
+        // Gentlest upgrade first, so the nearest workable option leads.
+        .sort((a, b) => (a[1].maxTripKm ?? Infinity) - (b[1].maxTripKm ?? Infinity))
+        .map(([, cfg]) => cfg.label);
+
+      const suggestion = viable.length
+        ? `Try ${viable.length > 1 ? `${viable.slice(0, -1).join(', ')} or ${viable.at(-1)}` : viable[0]}.`
+        : 'No mode here covers that distance.';
+
       const tooFar = isTransit()
         ? "further than METRO's network reaches"
         : `too far to ${MODES[state.mode].label.toLowerCase()}`;
       clearResults();
       setStatus(
-        `That is ${Math.round(straight / 1000)} km in a straight line — ${tooFar}. ` +
-          `Try ${suggestion}.`,
+        `That is ${Math.round(straight / 1000)} km in a straight line — ${tooFar}. ${suggestion}`,
         true,
       );
       return;
