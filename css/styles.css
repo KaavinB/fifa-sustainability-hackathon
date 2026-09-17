@@ -1985,3 +1985,27 @@ input[type="text"],
   border-radius: 0 !important;
   opacity: 0.7;
 }
+
+/* Foot traffic: same screen-blend treatment as the jobs heatmap, in the one
+   hue left — walkability owns red-green, jobs purple, priority crimson. */
+.dem-overlay {
+  mix-blend-mode: screen;
+  filter: blur(3px);
+}
+
+.dem-ramp {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1px;
+  margin: 6px 0 3px;
+  background: #1f2937;
+  padding: 2px;
+  border-radius: 3px;
+}
+
+.dem-ramp span { height: 8px; }
+.dem-ramp span:nth-child(1) { background: rgb(124, 45, 18); }
+.dem-ramp span:nth-child(2) { background: rgb(234, 88, 12); }
+.dem-ramp span:nth-child(3) { background: rgb(244, 137, 64); }
+.dem-ramp span:nth-child(4) { background: rgb(253, 186, 116); }
+.dem-ramp span:nth-child(5) { background: rgb(255, 255, 255); }

@@ -327,3 +327,9 @@ export const COUNTY_URL = 'data/harris-county.json';
 
 // Economic intensity: jobs per cell, aggregated from the business directory.
 export const ECONOMY_URL = 'data/economic-intensity.json';
+
+// Simulated foot traffic. Two runs, two questions — see js/demand.js.
+export const DEMAND_URLS = {
+  venues: 'data/demand.json',
+  jobs: 'data/demand-jobs.json',
+};

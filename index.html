@@ -253,6 +253,15 @@
           <button
             type="button"
             class="pick-btn"
+            id="demand-btn"
+            title="Simulated foot traffic — press again to switch between event-day and everyday"
+            aria-pressed="false"
+          >
+            <span class="btn-icon">🔥</span><span class="btn-text">Demand</span>
+          </button>
+          <button
+            type="button"
+            class="pick-btn"
             id="priority-btn"
             title="Where to invest first: busiest and hardest to walk"
             aria-pressed="false"
@@ -274,6 +283,14 @@
             <div class="walk-ramp-labels"><span>fewer jobs</span><span>more</span></div>
             <div class="walk-note" id="economy-count"></div>
             <div class="walk-note">Log scale — the busiest cell holds 21,292 jobs.</div>
+          </div>
+
+          <div class="map-legend" id="demand-legend" hidden>
+            <strong id="demand-title">🔥 Foot traffic</strong>
+            <div class="dem-ramp"><span></span><span></span><span></span><span></span><span></span></div>
+            <div class="walk-ramp-labels"><span>fewer routes</span><span>more</span></div>
+            <div class="walk-note" id="demand-note"></div>
+            <div class="walk-note" id="demand-switch"></div>
           </div>
 
           <div class="map-legend" id="priority-legend" hidden>

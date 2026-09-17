@@ -33,6 +33,17 @@ async function saveCache() {
 }
 
 const ROUTE_TARGET = Number(process.argv[2] || 1000);
+
+// venues  — event-day demand: everyone walking to a tournament site.
+// jobs    — everyday demand: people walking to where the jobs are, sampled
+//           from the employment grid and capped at a plausible walking range.
+//
+// The two answer different questions and neither subsumes the other. Venue
+// demand partly presupposes its answer, since every trip ends at one of four
+// places and the corridors feeding them are guaranteed to dominate. Jobs
+// demand makes no such assumption, which is why it is worth having both.
+const MODE = (process.argv[3] || 'venues').toLowerCase();
+const MAX_WALK_M = 2500; // ~30 minutes; nobody walks across the county to work
 // One worker, roughly one request per second. A burst of ~40 got this IP
 // throttled for several minutes, which took the live app's routing down with
 // it — routing.openstreetmap.de and router.project-osrm.org resolve to the
@@ -100,6 +111,44 @@ async function loadHotels() {
     .filter(Boolean);
 }
 
+/**
+ * Destinations drawn from the employment grid, weighted by jobs and limited to
+ * what is walkable from the origin. Without the distance cap every trip becomes
+ * a fifteen-kilometre slog to the medical centre, which is not a walk anyone
+ * takes and not a corridor worth planning for.
+ */
+async function jobDestinations() {
+  const doc = JSON.parse(await readFile('data/economic-intensity.json', 'utf8'));
+  const { bbox, rows, cols } = doc;
+  const latStep = (bbox.n - bbox.s) / rows;
+  const lonStep = (bbox.e - bbox.w) / cols;
+
+  return doc.cells
+    .filter(([, , jobs]) => jobs >= 50) // skip cells with a handful of jobs
+    .map(([row, col, jobs]) => ({
+      name: `${jobs} jobs`,
+      coord: [bbox.n - (row + 0.5) * latStep, bbox.w + (col + 0.5) * lonStep],
+      jobs,
+    }));
+}
+
+/** Weighted pick: a cell with ten times the jobs is ten times as likely. */
+function pickWeighted(candidates) {
+  const total = candidates.reduce((sum, c) => sum + c.jobs, 0);
+  let roll = Math.random() * total;
+  for (const c of candidates) {
+    roll -= c.jobs;
+    if (roll <= 0) return c;
+  }
+  return candidates[candidates.length - 1];
+}
+
+function metresBetween(a, b) {
+  const dLat = (a[0] - b[0]) * 111320;
+  const dLon = (a[1] - b[1]) * 111320 * Math.cos((a[0] * Math.PI) / 180);
+  return Math.hypot(dLat, dLon);
+}
+
 /** Neighbourhood origins, so demand is not only hotel guests. */
 function gridOrigins(step = 0.012) {
   const points = [];
@@ -151,25 +200,54 @@ async function main() {
   await mkdir('data', { recursive: true });
   await loadCache();
 
-  console.log('Loading lodging from OpenStreetMap…');
-  const hotels = await loadHotels();
-  console.log(`  ${hotels.length} named hotels`);
+  // Hotels are visitor origins and a venue-run concern only; the jobs run has
+  // no use for them and should not make the Overpass call.
+  let hotels = [];
+  if (MODE !== 'jobs') {
+    console.log('Loading lodging from OpenStreetMap…');
+    hotels = await loadHotels();
+    console.log(`  ${hotels.length} named hotels`);
+  }
 
-  const origins = [...hotels, ...gridOrigins()];
-  console.log(`  ${origins.length} origins (${hotels.length} hotels + ${origins.length - hotels.length} area points)`);
+  // Everyday trips start where people live, not where visitors sleep, so the
+  // jobs run drops the hotels and uses a denser neighbourhood grid.
+  const origins =
+    MODE === 'jobs' ? gridOrigins(0.006) : [...hotels, ...gridOrigins()];
+  console.log(
+    MODE === 'jobs'
+      ? `  ${origins.length} neighbourhood origins`
+      : `  ${origins.length} origins (${hotels.length} hotels + ${origins.length - hotels.length} area points)`,
+  );
 
-  // Build the job list, weighted so the stadium draws the most trips.
-  const jobs = [];
-  for (const origin of origins) {
-    for (const venue of VENUES) {
-      for (let i = 0; i < venue.weight; i++) jobs.push({ origin, venue });
-      if (jobs.length >= ROUTE_TARGET * 2) break;
+  const pairs = [];
+  if (MODE === 'jobs') {
+    const destinations = await jobDestinations();
+    console.log(`  ${destinations.length.toLocaleString()} job cells with 50+ employees`);
+
+    for (const origin of origins) {
+      const reachable = destinations.filter(
+        (d) => metresBetween(origin.coord, d.coord) <= MAX_WALK_M,
+      );
+      if (!reachable.length) continue;
+      // Several trips per origin, so a dense neighbourhood generates more
+      // demand than an empty one rather than each origin counting once.
+      for (let i = 0; i < 8; i++) {
+        pairs.push({ origin, venue: pickWeighted(reachable) });
+      }
+    }
+  } else {
+    for (const origin of origins) {
+      for (const venue of VENUES) {
+        for (let i = 0; i < venue.weight; i++) pairs.push({ origin, venue });
+        if (pairs.length >= ROUTE_TARGET * 2) break;
+      }
     }
   }
+
   // Even spread rather than the first N origins.
-  jobs.sort(() => Math.random() - 0.5);
-  const selected = jobs.slice(0, ROUTE_TARGET);
-  console.log(`Routing ${selected.length} trips on foot, throttled…`);
+  pairs.sort(() => Math.random() - 0.5);
+  const selected = pairs.slice(0, ROUTE_TARGET);
+  console.log(`Routing ${selected.length} ${MODE} trips on foot, throttled…`);
 
   const cells = new Map();
   const perHotel = new Map();
@@ -227,7 +305,10 @@ async function main() {
   console.log(`Routed ${done - failed} trips, ${failed} failed.`);
   if (failures.size) console.log('  failure reasons:', Object.fromEntries(failures));
 
-  const VENUE_EXCLUSION_M = 450;
+  // Only the venue run needs this: there, every trip ends at one of four
+  // places, so those four cells top the list by arithmetic. Job trips end all
+  // over the county, so there is nothing to exclude.
+  const VENUE_EXCLUSION_M = MODE === 'jobs' ? 0 : 450;
   const nearVenue = (coord) =>
     VENUES.some((v) => {
       const dLat = (coord[0] - v.coord[0]) * 111320;
@@ -257,10 +338,14 @@ async function main() {
     .filter((h) => h.walkMinutesToStadium !== null)
     .sort((a, b) => a.walkMinutesToStadium - b.walkMinutesToStadium);
 
+  const out = MODE === 'jobs' ? 'data/demand-jobs.json' : 'data/demand.json';
+
   await writeFile(
-    'data/demand.json',
+    out,
     JSON.stringify({
       v: 1,
+      mode: MODE,
+      maxWalkMetres: MODE === 'jobs' ? MAX_WALK_M : null,
       generated: new Date().toISOString().slice(0, 10),
       routed: done - failed,
       cellMetres: CELL_M,
@@ -273,7 +358,7 @@ async function main() {
     }),
   );
 
-  console.log(`\nWrote data/demand.json — ${hotspots.length} cells, top count ${hotspots[0]?.count}`);
+  console.log(`\nWrote ${out} — ${hotspots.length} cells, top count ${hotspots[0]?.count}`);
   console.log('Top 8 overlap points:');
   for (const h of hotspots.slice(0, 8)) {
     console.log(`  ${String(h.count).padStart(4)} routes  ${h.coord[0].toFixed(5)}, ${h.coord[1].toFixed(5)}`);

@@ -13,6 +13,7 @@ import {
   DATA_EXTENT,
   COUNTY_URL,
   ECONOMY_URL,
+  DEMAND_URLS,
 } from './config.js';
 import { bboxOf, padBbox, haversine } from './geo.js';
 import { fetchBaseRoutes, fetchViaRoute, pickGreenViaPoints, dedupe } from './routing.js';
@@ -23,6 +24,7 @@ import { assignStopsToSteps } from './water.js';
 import { loadWalkability, walkabilityMeta, overlayImage } from './walkability.js';
 import { loadPriority, priorityMeta, radiusFor, colorFor, describeSite, renderScatter } from './priority.js';
 import { loadEconomy, economyMeta, overlayImage as economyImage } from './economy.js';
+import { loadDemand, demandMeta, overlayImage as demandImage } from './demand.js';
 import { renderProfile, seriesFor, sampleAt, describeSample } from './profile.js';
 import {
   planTransit,
@@ -76,6 +78,8 @@ const state = {
   walkLayer: null,
   priorityLayer: null,
   economyLayer: null,
+  demandLayer: null,
+  demandMode: null,
   waterLayer: null,
   showWater: true,
   busy: false,
@@ -309,6 +313,77 @@ async function toggleEconomy() {
   button.classList.add('is-armed');
   button.setAttribute('aria-pressed', 'true');
   el('economy-legend').hidden = false;
+}
+
+const DEMAND_LABEL = {
+  venues: ['🔥 Event-day foot traffic', 'Hotels and neighbourhoods walking to the four venues.'],
+  jobs: ['🔥 Everyday foot traffic', 'Neighbourhoods walking to where the jobs are, within 2.5 km.'],
+};
+
+/**
+ * One button, three states: off → event-day → everyday → off.
+ *
+ * The two runs are mutually exclusive rather than separate toggles. They are
+ * both intensity surfaces, and two of those at once is unreadable — the honest
+ * comparison is one and then the other. A single cycling control also keeps
+ * the button row down to four layers, which is what fits a phone.
+ */
+async function cycleDemand() {
+  const order = [null, 'venues', 'jobs'];
+  const next = order[(order.indexOf(state.demandMode) + 1) % order.length];
+  const button = el('demand-btn');
+
+  if (state.demandLayer) {
+    map.removeLayer(state.demandLayer);
+    state.demandLayer = null;
+  }
+
+  state.demandMode = next;
+  if (!next) {
+    button.classList.remove('is-armed');
+    button.setAttribute('aria-pressed', 'false');
+    el('demand-legend').hidden = true;
+    return;
+  }
+
+  button.disabled = true;
+  await loadDemand(next);
+  const image = demandImage(next);
+  button.disabled = false;
+
+  if (!image) {
+    setStatus(
+      next === 'jobs'
+        ? 'The everyday demand run has not been generated yet.'
+        : 'The demand layer could not be loaded.',
+      true,
+    );
+    state.demandMode = null;
+    button.classList.remove('is-armed');
+    el('demand-legend').hidden = true;
+    return;
+  }
+
+  state.demandLayer = L.imageOverlay(
+    image.url,
+    [
+      [image.bbox.s, image.bbox.w],
+      [image.bbox.n, image.bbox.e],
+    ],
+    { opacity: 1, interactive: false, className: 'dem-overlay' },
+  ).addTo(map);
+  state.demandLayer.bringToFront();
+
+  const doc = demandMeta(next);
+  const [title, note] = DEMAND_LABEL[next];
+  el('demand-title').textContent = title;
+  el('demand-note').textContent =
+    `${note} ${doc.routed.toLocaleString()} simulated trips, ${image.cells} cells, busiest carries ${image.top}.`;
+  el('demand-switch').textContent =
+    next === 'venues' ? 'Press again for everyday demand.' : 'Press again to turn off.';
+  button.classList.add('is-armed');
+  button.setAttribute('aria-pressed', 'true');
+  el('demand-legend').hidden = false;
 }
 
 /** The priority sites, on the map and in a ranked list. */
@@ -2621,6 +2696,7 @@ function init() {
   el('walk-layer-btn').addEventListener('click', toggleWalkLayer);
   el('priority-btn').addEventListener('click', togglePriority);
   el('economy-btn').addEventListener('click', toggleEconomy);
+  el('demand-btn').addEventListener('click', cycleDemand);
   el('close-priority').addEventListener('click', togglePriority);
 
   el('basemap-btn').addEventListener('click', () => {
