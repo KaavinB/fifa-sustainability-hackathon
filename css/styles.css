@@ -1696,3 +1696,96 @@ input[type="text"],
 .profile-none {
   opacity: 0.75;
 }
+
+/* ------------------------------------------------ walkability overlay --- */
+
+/* Crisp cells rather than a blurred wash: each pixel is a real 75 m
+   measurement, and smoothing it invents values between them. */
+.walk-overlay {
+  image-rendering: pixelated;
+  mix-blend-mode: multiply;
+}
+
+.walk-ramp {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1px;
+  margin: 6px 0 3px;
+}
+
+.walk-ramp span {
+  height: 8px;
+  background: #1e40af;
+}
+
+.walk-ramp span:nth-child(1) { opacity: 0.12; }
+.walk-ramp span:nth-child(2) { opacity: 0.3; }
+.walk-ramp span:nth-child(3) { opacity: 0.5; }
+.walk-ramp span:nth-child(4) { opacity: 0.7; }
+.walk-ramp span:nth-child(5) { opacity: 0.92; }
+
+.walk-ramp-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.walk-note {
+  margin-top: 5px;
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+/* --------------------------------------------------------- priority --- */
+
+.priority-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.priority-site {
+  display: grid;
+  grid-template-columns: 26px 1fr auto;
+  gap: 9px;
+  align-items: baseline;
+  padding: 8px 6px;
+  border-top: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.priority-site:first-child {
+  border-top: 0;
+}
+
+.priority-site:hover {
+  background: #fdf0f3;
+}
+
+.priority-rank {
+  font-size: 12px;
+  font-weight: 700;
+  color: #9f1239;
+  text-align: center;
+}
+
+.priority-name {
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.priority-meta {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.priority-score {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  white-space: nowrap;
+}

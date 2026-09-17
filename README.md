@@ -367,6 +367,41 @@ Amber marks where the route *is* busy rather than where it is calm, both because
 amber already means "busy road" on the direction chips and because the stretches
 to avoid are the ones worth finding.
 
+## Priority sites — where to spend first
+
+Deliverable 2b of the brief: high intensity crossed with low walkability.
+Neither half is a finding alone. A busy corridor that is already pleasant needs
+nothing; a miserable corridor nobody walks down is not where a limited budget
+goes. The layer multiplies the two — a site has to be **both** busy and hard
+before it earns money, which a sum would not require.
+
+Intensity comes from simulating **1,000 walking trips** from every hotel and a
+grid of neighbourhood points to the four venues
+([`tools/simulate-demand.mjs`](tools/simulate-demand.mjs)), counting how many
+pass each 60 m cell. Difficulty is the GIS team's walkability index at that
+cell. Cells within 450 m of a venue are excluded upstream, because every route
+ends at a venue and "the stadium is busy" is arithmetic rather than insight.
+
+The result is unambiguous:
+
+```
+  #  priority  trips   cost  place
+  1     0.297    234   4.51  Fannin Street · University Place
+  2     0.182    238   3.55  Main Street · Museum District
+  3     0.176    230   3.55  Fannin Street · University Place
+  4     0.160    205   3.58  South Braeswood Blvd · Texas Medical Center
+  5     0.148    172   3.74  Fannin Street · Texas Medical Center
+```
+
+**Fannin Street through University Place scores 63% higher than anything else.**
+It carries 23% of all simulated walking trips to the venues, on ground the
+walkability index rates 4.51 out of 10 — the worst walking surface of any
+corridor carrying that volume. If Houston fixed one street before the
+tournament, the analysis says it is that one.
+
+Red is used here and nowhere else in the app, deliberately: so that when it
+appears, it means something.
+
 ## Walkability surface
 
 It carries 20% of the default weight — below green and shade deliberately,

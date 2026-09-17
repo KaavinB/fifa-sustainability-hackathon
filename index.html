@@ -170,6 +170,16 @@
           <div class="profile-readout" id="profile-readout"></div>
         </section>
 
+        <section class="card" id="priority-card" hidden>
+          <h2>
+            <span>Priority sites</span>
+            <button id="close-priority" class="link-btn" type="button">hide</button>
+          </h2>
+          <p class="hint" id="priority-summary"></p>
+          <ol id="priority-list" class="priority-list"></ol>
+          <p class="hint" id="priority-method"></p>
+        </section>
+
         <section class="card" id="directions-card" hidden>
           <h2>
             <span id="directions-title">Directions</span>
@@ -220,6 +230,24 @@
           <button type="button" class="pick-btn" id="basemap-btn" title="Switch basemap">
             🗺 Streets
           </button>
+          <button
+            type="button"
+            class="pick-btn"
+            id="walk-layer-btn"
+            title="Show the walkability surface"
+            aria-pressed="false"
+          >
+            🚶 Walkability
+          </button>
+          <button
+            type="button"
+            class="pick-btn"
+            id="priority-btn"
+            title="Where to invest first: busiest and hardest to walk"
+            aria-pressed="false"
+          >
+            ⚠️ Priority
+          </button>
         </div>
         <div class="map-stack">
         <div class="map-panel" id="weights-panel">
@@ -256,6 +284,15 @@
         </div>
 
           <div class="map-legend" id="legend" hidden></div>
+
+          <div class="map-legend" id="walk-legend" hidden>
+            <strong>🚶 Walkability surface</strong>
+            <div class="walk-ramp"><span></span><span></span><span></span><span></span><span></span></div>
+            <div class="walk-ramp-labels"><span>harder</span><span>easier on foot</span></div>
+            <div class="walk-note">
+              Rice GIS multidimensional index · unshaded areas have no data
+            </div>
+          </div>
         </div>
       </main>
     </div>

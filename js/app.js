@@ -16,7 +16,8 @@ import { loadGreenLayer } from './greenspace.js';
 import { scoreRoutes, assignBadges, formatDistance, formatDuration } from './scoring.js';
 import { buildDirections, stepDistance } from './directions.js';
 import { assignStopsToSteps } from './water.js';
-import { loadWalkability, walkabilityMeta } from './walkability.js';
+import { loadWalkability, walkabilityMeta, overlayImage } from './walkability.js';
+import { loadPriority, priorityMeta, radiusFor, colorFor, describeSite } from './priority.js';
 import { renderProfile, seriesFor, sampleAt, describeSample } from './profile.js';
 import {
   planTransit,
@@ -67,6 +68,8 @@ const state = {
   stopLayer: null,
   labelLayer: null,
   basemap: 'streets',
+  walkLayer: null,
+  priorityLayer: null,
   waterLayer: null,
   showWater: true,
   busy: false,
@@ -139,6 +142,143 @@ function hasWebGL() {
 }
 
 let basemap = makeBasemap('streets').addTo(map);
+
+/**
+ * The walkability surface as a map layer.
+ *
+ * It sits under the routes, not over them — the point is to see which ground a
+ * route crosses, so the route has to stay the brightest thing on screen. Where
+ * the surface has no data the image is transparent, so a gap reads as a gap
+ * rather than as a colour that means something.
+ */
+async function toggleWalkLayer() {
+  const button = el('walk-layer-btn');
+
+  if (state.walkLayer) {
+    map.removeLayer(state.walkLayer);
+    state.walkLayer = null;
+    button.classList.remove('is-armed');
+    button.setAttribute('aria-pressed', 'false');
+    el('walk-legend').hidden = true;
+    return;
+  }
+
+  button.disabled = true;
+  await loadWalkability();
+  const image = overlayImage();
+  button.disabled = false;
+
+  if (!image) {
+    setStatus('The walkability surface could not be loaded.', true);
+    return;
+  }
+
+  state.walkLayer = L.imageOverlay(
+    image.url,
+    [
+      [image.bbox.s, image.bbox.w],
+      [image.bbox.n, image.bbox.e],
+    ],
+    { opacity: 1, interactive: false, className: 'walk-overlay' },
+  ).addTo(map);
+  state.walkLayer.bringToBack();
+  basemap.bringToBack?.();
+
+  button.classList.add('is-armed');
+  button.setAttribute('aria-pressed', 'true');
+  el('walk-legend').hidden = false;
+}
+
+/** The priority sites, on the map and in a ranked list. */
+async function togglePriority() {
+  const button = el('priority-btn');
+
+  if (state.priorityLayer) {
+    map.removeLayer(state.priorityLayer);
+    state.priorityLayer = null;
+    button.classList.remove('is-armed');
+    button.setAttribute('aria-pressed', 'false');
+    el('priority-card').hidden = true;
+    return;
+  }
+
+  button.disabled = true;
+  const sites = await loadPriority();
+  sitesCache = sites;
+  button.disabled = false;
+
+  if (!sites.length) {
+    setStatus('The priority layer could not be loaded.', true);
+    return;
+  }
+
+  const meta = priorityMeta();
+  const top = sites[0].priority;
+  state.priorityLayer = L.layerGroup().addTo(map);
+
+  sites.forEach((site, i) => {
+    const { fill, stroke } = colorFor(site.priority, top);
+    L.circleMarker(site.coord, {
+      radius: radiusFor(site.priority, top),
+      color: stroke,
+      weight: 1.5,
+      fillColor: fill,
+      fillOpacity: 1,
+    })
+      .bindTooltip(
+        `<b>#${i + 1} ${escapeHtml(site.name || 'site')}</b><br>` +
+          `${site.trips} of ${meta.routed} simulated trips · walkability cost ${site.cost}`,
+        { direction: 'top' },
+      )
+      .on('click', () => focusPrioritySite(i))
+      .addTo(state.priorityLayer);
+  });
+
+  button.classList.add('is-armed');
+  button.setAttribute('aria-pressed', 'true');
+  renderPriorityList(sites, meta);
+  map.fitBounds(L.latLngBounds(sites.map((s) => s.coord)), boundsOptions());
+}
+
+function renderPriorityList(sites, meta) {
+  el('priority-card').hidden = false;
+  const top = sites.slice(0, 12).map((site, i) => describeSite(site, i + 1, meta.routed));
+
+  el('priority-summary').innerHTML =
+    `Busiest <em>and</em> hardest to walk. ${sites[0].name || 'The top site'} carries ` +
+    `<b>${top[0].share}%</b> of ${meta.routed.toLocaleString()} simulated walking trips ` +
+    `to the venues, on ground the walkability index scores ${sites[0].cost} out of 10.`;
+
+  el('priority-list').innerHTML = top
+    .map(
+      (site) => `
+      <li class="priority-site" data-index="${site.rank - 1}">
+        <span class="priority-rank">${site.rank}</span>
+        <span>
+          <span class="priority-name">${escapeHtml(site.name)}</span>
+          <span class="priority-meta">${site.trips} trips (${site.share}%) · cost ${site.cost}/10</span>
+        </span>
+        <span class="priority-score">${site.priority.toFixed(2)}</span>
+      </li>`,
+    )
+    .join('');
+
+  el('priority-list')
+    .querySelectorAll('.priority-site')
+    .forEach((node) =>
+      node.addEventListener('click', () => focusPrioritySite(Number(node.dataset.index))),
+    );
+
+  el('priority-method').textContent = meta.method;
+}
+
+function focusPrioritySite(index) {
+  const site = state.priorityLayer && sitesCache[index];
+  if (!site) return;
+  map.flyTo(offsetForVisibleArea(site.coord), Math.max(map.getZoom(), 16), { duration: 0.5 });
+}
+
+let sitesCache = [];
 
 function setBasemap(key) {
   state.basemap = key;
@@ -2276,6 +2416,10 @@ function init() {
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !el('weights-body').hidden) setWeightsOpen(false);
   });
+
+  el('walk-layer-btn').addEventListener('click', toggleWalkLayer);
+  el('priority-btn').addEventListener('click', togglePriority);
+  el('close-priority').addEventListener('click', togglePriority);
 
   el('basemap-btn').addEventListener('click', () => {
     const index = BASEMAP_ORDER.indexOf(state.basemap);

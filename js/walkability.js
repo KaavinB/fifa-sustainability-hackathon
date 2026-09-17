@@ -95,3 +95,50 @@ export function pathWalkability(points) {
 }
 
 export const walkabilityMeta = () => grid || null;
+
+// The overlay hue, matching the profile chart's walkability row so the two
+// views of the same number never disagree: stronger means easier on foot,
+// everywhere it appears.
+const OVERLAY_RGB = [30, 64, 175]; // #1e40af
+
+let overlayUrl = null;
+
+/**
+ * The surface as a single image for the map.
+ *
+ * The grid is already a regular lat/lon raster, which is exactly what an image
+ * overlay wants — one cell to one pixel, no resampling and no projection maths.
+ * Built once and cached; it is 1398 x 1038, which a canvas handles instantly.
+ */
+export function overlayImage() {
+  if (!grid) return null;
+  if (overlayUrl) return { url: overlayUrl, bbox: grid.bbox };
+
+  const { cols, rows, cells, nodata } = grid;
+  const canvas = document.createElement('canvas');
+  canvas.width = cols;
+  canvas.height = rows;
+  const ctx = canvas.getContext('2d');
+  const image = ctx.createImageData(cols, rows);
+  const [r, g, b] = OVERLAY_RGB;
+
+  for (let i = 0; i < cells.length; i++) {
+    const raw = cells[i];
+    const p = i * 4;
+    if (raw === nodata) {
+      image.data[p + 3] = 0; // absent stays absent, never a colour meaning "bad"
+      continue;
+    }
+    const normalised = raw / 254;
+    const ease = grid.higherIsWorse ? 1 - normalised : normalised;
+    image.data[p] = r;
+    image.data[p + 1] = g;
+    image.data[p + 2] = b;
+    // Capped well below opaque: this sits under the routes, not over them.
+    image.data[p + 3] = Math.round(20 + 150 * ease);
+  }
+
+  ctx.putImageData(image, 0, 0);
+  overlayUrl = canvas.toDataURL('image/png');
+  return { url: overlayUrl, bbox: grid.bbox };
+}

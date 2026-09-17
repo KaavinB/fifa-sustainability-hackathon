@@ -306,3 +306,6 @@ export const FALLBACK_DATA_URL = 'data/houston-green.json';
 
 // Walkability cost surface, prebuilt by tools/build-walkability-grid.py
 export const WALKABILITY_URL = 'data/walkability.json';
+
+// Priority sites: high walking demand crossed with low walkability.
+export const PRIORITY_URL = 'data/priority.json';
