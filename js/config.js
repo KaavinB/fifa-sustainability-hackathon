@@ -314,3 +314,9 @@ export const WALKABILITY_URL = 'data/walkability.json';
 
 // Priority sites: high walking demand crossed with low walkability.
 export const PRIORITY_URL = 'data/priority.json';
+
+// The extent of the walkability surface — effectively Harris County, and the
+// area this app actually has data for. The map opens here so the first view
+// shows what is covered rather than a single neighbourhood. Printed by
+// tools/build-walkability-grid.py; update it if the raster's extent changes.
+export const DATA_EXTENT = { s: 29.490137, w: -95.980093, n: 30.189554, e: -94.89403 };

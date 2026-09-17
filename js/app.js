@@ -10,6 +10,7 @@ import {
   ROUTE_COLORS,
   IMPACT_SOURCES,
   METRO_LINKS,
+  DATA_EXTENT,
 } from './config.js';
 import { bboxOf, padBbox, haversine } from './geo.js';
 import { fetchBaseRoutes, fetchViaRoute, pickGreenViaPoints, dedupe } from './routing.js';
@@ -113,7 +114,15 @@ const map = L.map('map', {
   maxBounds: TEXAS_BOUNDS,
   maxBoundsViscosity: 0.85, // firm, but it gives a little rather than jarring
   minZoom: 6,
-}).setView(HOUSTON_CENTER, 12);
+});
+
+// Open on the whole covered area rather than one neighbourhood, so the first
+// thing on screen is the extent of what the app actually knows. Comparing a
+// trip zooms to the routes straight after.
+map.fitBounds(
+  L.latLngBounds([DATA_EXTENT.s, DATA_EXTENT.w], [DATA_EXTENT.n, DATA_EXTENT.e]),
+  { padding: [20, 20] },
+);
 
 let tileFailures = 0;
 
