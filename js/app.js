@@ -4,6 +4,7 @@ import {
   BASEMAPS,
   BASEMAP_ORDER,
   HOUSTON_CENTER,
+  TEXAS,
   MODES,
   DEFAULT_WEIGHTS,
   ROUTE_COLORS,
@@ -96,7 +97,23 @@ const isTransit = () => state.mode === 'transit';
 
 /* ---------------------------------------------------------------- map --- */
 
-const map = L.map('map', { zoomControl: true }).setView(HOUSTON_CENTER, 12);
+// Fenced to Texas, because that is the extent of everything the app knows.
+// The walkability surface stops at Harris County, the green extract at the
+// inner loop, and search is Texas-biased — so panning to Oklahoma offers a map
+// with nothing on it and no way to tell that from a bug. maxBounds keeps the
+// view where the data is; the padding lets the edges breathe rather than
+// slamming shut.
+const TEXAS_BOUNDS = L.latLngBounds(
+  [TEXAS.s - 0.3, TEXAS.w - 0.3],
+  [TEXAS.n + 0.3, TEXAS.e + 0.3],
+);
+
+const map = L.map('map', {
+  zoomControl: true,
+  maxBounds: TEXAS_BOUNDS,
+  maxBoundsViscosity: 0.85, // firm, but it gives a little rather than jarring
+  minZoom: 6,
+}).setView(HOUSTON_CENTER, 12);
 
 let tileFailures = 0;
 
@@ -2303,7 +2320,10 @@ function renderLegend() {
 function buildWeightSliders() {
   const labels = {
     green: ['Green space', 'Parks, bayou trails, water'],
-    shade: ['Tree canopy', 'Shade = survivable heat'],
+    shade: [
+      'Tree canopy',
+      'Zero by default: the walkability index already contains canopy and heat, measured better. Raise it to weigh our OSM canopy too.',
+    ],
     quiet: ['Away from traffic', 'Avoids freeways and feeders'],
     walk: ['Walkability', 'Sidewalks, crossings, destinations — the GIS cost surface'],
     direct: ['Directness', "Doesn't wander"],

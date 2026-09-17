@@ -250,26 +250,31 @@ export const IMPACT_SOURCES = [
 ];
 
 // Default weights for the composite "pleasantness" score. Tunable in the UI.
-// Walkability leads, because it is the better measurement.
+// Score from the best measurement; explain with the legible one.
 //
-// The GIS team's index is built from LiDAR canopy, LANDSAT, land-surface
-// temperature, the EPA walkability index and sidewalk density, across all of
-// Harris County at 30 m. The green and shade components here are OSM proxies
-// resting on roughly two thousand individually mapped trees. Where the two
-// measure the same thing, theirs wins.
+// The GIS index already contains tree canopy (10%) and urban heat (15%) as
+// 30 m rasters from LiDAR, LANDSAT and land-surface temperature. The shade
+// layer here is built from roughly two thousand individually mapped OSM trees
+// and sampled every 75 m — coarser and far less complete. It is not a
+// finer-grained view of the same thing, it is a worse one, so it carries no
+// weight in the score. Counting it would count canopy twice, the second time
+// badly.
 //
-// The OSM layers keep a smaller share rather than none, because they answer a
-// different question at a different scale: the index is area-level, and a
-// block group can average well-shaded while the specific sidewalk you are on
-// has no canopy at all. Directness keeps the largest of the remaining shares
-// for the opposite reason — it is the one thing the index does not measure,
-// being a property of the route rather than of the place.
+// It stays in the app because it is the only canopy signal that can be
+// isolated: the index ships as a composite that cannot be decomposed, so
+// "unshaded minutes" and the Shade row on the profile have no other source.
+// Those report; they no longer score. If the team exports the five component
+// rasters separately, their canopy replaces ours outright.
+//
+// Directness takes the largest remaining share for the opposite reason: it is
+// the one thing the index does not measure at all, being a property of the
+// route rather than of the place.
 export const DEFAULT_WEIGHTS = {
-  walk: 0.45, // the GIS team's multidimensional walkability index
-  direct: 0.18, // not in their index at all: route geometry, not place
-  green: 0.15, // parks and bayous beside the path, sampled every 75 m
-  shade: 0.12, // canopy on the path itself, finer than the index's area level
-  quiet: 0.10, // partly covered by the index's raw-walkability component
+  walk: 0.55, // the GIS multidimensional walkability index
+  direct: 0.25, // route geometry — absent from the index entirely
+  green: 0.12, // park and bayou frontage, which is amenity rather than canopy
+  quiet: 0.08, // partly inside the index's raw-walkability component already
+  shade: 0, // duplicate of the index's canopy and UHI; reported, not scored
 };
 
 // Distances in metres.
