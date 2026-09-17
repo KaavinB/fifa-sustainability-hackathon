@@ -21,7 +21,7 @@ import { scoreRoutes, assignBadges, formatDistance, formatDuration } from './sco
 import { buildDirections, stepDistance } from './directions.js';
 import { assignStopsToSteps } from './water.js';
 import { loadWalkability, walkabilityMeta, overlayImage } from './walkability.js';
-import { loadPriority, priorityMeta, radiusFor, colorFor, describeSite } from './priority.js';
+import { loadPriority, priorityMeta, radiusFor, colorFor, describeSite, renderScatter } from './priority.js';
 import { loadEconomy, economyMeta, overlayImage as economyImage } from './economy.js';
 import { renderProfile, seriesFor, sampleAt, describeSample } from './profile.js';
 import {
@@ -393,6 +393,11 @@ function renderPriorityList(sites, meta) {
       node.addEventListener('click', () => focusPrioritySite(Number(node.dataset.index))),
     );
 
+  el('priority-chart').innerHTML = renderScatter(meta.cells, sites);
+  el('priority-chart-legend').innerHTML =
+    '<span class="sc-key"><i class="sc-dot-site"></i>the 40 chosen</span>' +
+    `<span class="sc-key"><i class="sc-dot-bg"></i>all ${meta.cells?.length || 0} scored cells</span>` +
+    '<span class="sc-key"><i class="sc-dash"></i>cut-off</span>';
   el('priority-method').textContent = meta.method;
 }
 

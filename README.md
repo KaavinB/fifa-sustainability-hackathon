@@ -428,6 +428,19 @@ tournament, the analysis says it is that one.
 Red is used here and nowhere else in the app, deliberately: so that when it
 appears, it means something.
 
+### Why a site ranks, not just which ones did
+
+A product is hard to argue with in a list, so the card plots all 400 scored
+cells against the two axes that make the score — share of simulated trips
+across, walkability cost up. The 40 chosen sites are the top-right corner, and
+the dashed curve is the iso-priority line through the last one that made the
+cut. "Both busy and hard" becomes something you can see rather than something
+you are told.
+
+The difficulty axis runs to 0.4 rather than 1.0 because that is where the data
+actually stops; scaling to a nominal full range would flatten every point onto
+the floor.
+
 ## Walkability surface
 
 Scored as **ease per unit of direct progress**, not ease per step. Averaging

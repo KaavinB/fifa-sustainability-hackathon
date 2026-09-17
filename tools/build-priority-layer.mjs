@@ -115,6 +115,10 @@ async function main() {
         "GIS team's walkability cost index at that cell. Venue surroundings are excluded " +
         'upstream, since every route ends at a venue.',
       routed: demand.routed,
+      // Every scored cell, not just the chosen ones: the scatter needs the
+      // population to show why the top-right corner is what gets picked.
+      // [intensity, difficulty], three decimals — 400 pairs is ~6 KB.
+      cells: scored.map((c) => [c.intensity, c.difficulty]),
       sites: picked,
     }),
   );

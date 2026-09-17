@@ -1926,3 +1926,62 @@ input[type="text"],
     max-height: 42vh;
   }
 }
+
+/* ------------------------------------------------- priority scatter --- */
+
+.sc {
+  width: 100%;
+  height: auto;
+  display: block;
+  margin: 4px 0 2px;
+  overflow: visible;
+}
+
+/* Context, not a series: neutral so the chosen cells carry the only colour. */
+.sc-bg { fill: #9aa8a0; opacity: 0.45; }
+
+.sc-site {
+  fill: #be123c;
+  stroke: var(--panel);
+  stroke-width: 1.5; /* the 2px-ish surface ring that keeps overlaps readable */
+}
+
+.sc-iso {
+  fill: none;
+  stroke: #be123c;
+  stroke-width: 1.2;
+  stroke-dasharray: 3 3;
+  opacity: 0.55;
+}
+
+.sc-grid { stroke: var(--line); stroke-width: 1; }
+.sc-tick { font-size: 8px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.sc-axis { font-size: 8.5px; fill: var(--muted); }
+
+.sc-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 2px 0 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.sc-key { display: inline-flex; align-items: center; gap: 5px; }
+
+.sc-key i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.sc-dot-site { background: #be123c; }
+.sc-dot-bg { background: #9aa8a0; opacity: 0.55; }
+.sc-dash {
+  width: 14px !important;
+  height: 0 !important;
+  border-top: 1.5px dashed #be123c;
+  border-radius: 0 !important;
+  opacity: 0.7;
+}
