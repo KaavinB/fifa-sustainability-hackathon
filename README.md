@@ -575,6 +575,11 @@ origin, destination, mode
 
 ## Data and attribution
 
+Full provenance — including what went into the walkability index, who built
+each layer, and the literature the weights rest on — is in
+[SOURCES.md](SOURCES.md).
+
+
 Walking, cycling and driving routed by [OSRM](https://project-osrm.org/) via the FOSSGIS public
 instances. METRORail and METRO bus trips routed by [MOTIS](https://github.com/motis-project/motis)
 on the free public service run by [Transitous](https://transitous.org/), over
