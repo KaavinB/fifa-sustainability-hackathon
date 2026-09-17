@@ -31,13 +31,33 @@ const RIDING = {
   description: 'on board a METRO bus or train — out of the sun, and not scored',
 };
 
+// The first row drawn from a real raster rather than from OSM geometry, and
+// the first that is continuous rather than binary. A sequential encoding — one
+// hue whose strength carries the value — identified by its label, not by being
+// told apart from the categorical hues. Indigo sits clear of all three of those
+// and of the cyan water markers.
+//
+// It is a COST surface: higher means harder. walkability.js does the inversion
+// once, so `walk` here is already 0..1 with 1 meaning easiest.
+const WALKING = {
+  key: 'walk',
+  label: 'Walk',
+  color: '#1e40af',
+  continuous: true,
+  description: 'walkability surface — stronger means easier on foot',
+};
+
 /**
  * The rows to draw for one route. A walk has three; a transit trip has a
  * fourth showing where it is on board, because without it the profile reads as
- * twelve miles of unshaded pavement.
+ * twelve miles of unshaded pavement. A fifth appears wherever the walkability
+ * surface covers the route.
  */
 export function seriesFor(route) {
-  return route?.profile?.hasRide ? [...PROFILE_SERIES, RIDING] : PROFILE_SERIES;
+  const rows = route?.profile?.hasRide ? [...PROFILE_SERIES, RIDING] : [...PROFILE_SERIES];
+  const walk = route?.profile?.walk;
+  if (Array.isArray(walk) && walk.some((v) => v !== null && v !== undefined)) rows.push(WALKING);
+  return rows;
 }
 
 const W = 320; // internal coordinate width; the SVG scales to its container
@@ -83,13 +103,28 @@ export function renderProfile(route, { water = [], turns = [] } = {}) {
 
   const rows = bands.map((series, index) => {
     const y = TOP + index * (ROW_H + ROW_GAP);
-    const bars = runs(profile[series.key], distances, total)
-      .map(
-        ([from, to]) =>
-          `<rect x="${x(from).toFixed(1)}" y="${y}" width="${Math.max(1.5, (to - from) * plotWidth).toFixed(1)}"
-                 height="${ROW_H}" rx="2" fill="${series.color}" />`,
-      )
-      .join('');
+
+    // A continuous row is one band per sample, its strength carrying the
+    // value. A gap in the surface is drawn as a gap and never as a zero:
+    // "no data here" and "bad here" are different claims.
+    const bars = series.continuous
+      ? profile[series.key]
+          .map((value, i) => {
+            if (value === null || value === undefined) return '';
+            const from = distances[i] / total;
+            const to = i + 1 < distances.length ? distances[i + 1] / total : from + 0.004;
+            const width = Math.max(1.2, (to - from) * plotWidth);
+            return `<rect x="${x(from).toFixed(1)}" y="${y}" width="${width.toFixed(1)}" height="${ROW_H}"
+                          fill="${series.color}" fill-opacity="${(0.15 + 0.85 * value).toFixed(2)}" />`;
+          })
+          .join('')
+      : runs(profile[series.key], distances, total)
+          .map(
+            ([from, to]) =>
+              `<rect x="${x(from).toFixed(1)}" y="${y}" width="${Math.max(1.5, (to - from) * plotWidth).toFixed(1)}"
+                     height="${ROW_H}" rx="2" fill="${series.color}" />`,
+          )
+          .join('');
 
     return `
       <g>
@@ -149,6 +184,17 @@ export function sampleAt(profile, fraction) {
 export function describeSample(profile, index) {
   const rows = profile.hasRide ? [...PROFILE_SERIES, RIDING] : PROFILE_SERIES;
   const active = rows.filter((series) => profile[series.key]?.[index]);
+
+  // Continuous, so it cannot be filtered on truthiness like the binary rows —
+  // and 0 is a real value here, meaning "as hard as it gets", not "absent".
+  const walk = profile.walk?.[index];
+  if (walk !== null && walk !== undefined) {
+    active.push({
+      key: 'walk',
+      color: WALKING.color,
+      label: walk > 0.66 ? 'easy on foot' : walk > 0.33 ? 'fair on foot' : 'hard on foot',
+    });
+  }
   return {
     distance: formatDistance(profile.distances[index]),
     parts: active.length

@@ -288,3 +288,6 @@ export const PRESETS = [
 export const ROUTE_COLORS = ['#1f7a4d', '#2563eb', '#b45309', '#7c3aed', '#be123c', '#0f766e'];
 
 export const FALLBACK_DATA_URL = 'data/houston-green.json';
+
+// Walkability cost surface, prebuilt by tools/build-walkability-grid.py
+export const WALKABILITY_URL = 'data/walkability.json';

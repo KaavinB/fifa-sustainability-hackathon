@@ -366,6 +366,41 @@ Amber marks where the route *is* busy rather than where it is calm, both because
 amber already means "busy road" on the direction chips and because the stretches
 to avoid are the ones worth finding.
 
+## Walkability surface
+
+The first row on the profile drawn from a real raster rather than from OSM
+geometry, and the first that is continuous rather than binary — which is the
+upgrade the binary green and shade rows were always waiting for.
+
+The source is a 53 MB float32 GeoTIFF at 30 m in EPSG:3857, produced by the
+project's GIS team. It ships as a **173 KB** grid: resampled to 150 m in plain
+lat/lon (so a lookup is two divisions, no projection maths at runtime) and
+quantised to a byte a cell. Rebuild with
+[`tools/build-walkability-grid.py`](tools/build-walkability-grid.py). Verified
+against the original at known landmarks — worst disagreement 0.22 index units,
+which is 150 m resampling rather than error.
+
+**It is a cost surface: a higher index means harder to walk.** That was worth
+checking rather than assuming, because an inverted scale would flip every
+recommendation the app makes while looking perfectly confident:
+
+```
+KNOWN WALKABLE                  KNOWN NOT WALKABLE
+  Montrose Westheimer   2.43      Tollway interchange   4.59
+  Rice Village          2.48      Katy Mills big-box    6.01
+  Downtown core         2.98      Ship channel          9.39
+  ── mean 2.62 ──                 ── mean 7.37 ──
+```
+
+Zero overlap between the two groups. The grid therefore stores the **original**
+index with `"polarity": "higher-is-worse"` recorded alongside it, and
+[`js/walkability.js`](js/walkability.js) inverts in exactly one function. A
+reader that silently flipped the numbers would be impossible to audit later.
+
+About 43% of the source is nodata, so coverage is patchy outside the core. A
+gap is drawn as a gap and reported as `null`, never as zero — "no data here"
+and "bad here" are different claims and the UI must not conflate them.
+
 ## Turn-by-turn directions
 
 Selecting a route produces exact directions built from OSRM's step data — with the shade layer

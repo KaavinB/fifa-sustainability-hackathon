@@ -16,6 +16,7 @@ import { loadGreenLayer } from './greenspace.js';
 import { scoreRoutes, assignBadges, formatDistance, formatDuration } from './scoring.js';
 import { buildDirections, stepDistance } from './directions.js';
 import { assignStopsToSteps } from './water.js';
+import { loadWalkability, walkabilityMeta } from './walkability.js';
 import { renderProfile, seriesFor, sampleAt, describeSample } from './profile.js';
 import {
   planTransit,
@@ -865,6 +866,8 @@ async function compare() {
       setStatus('Trip is long — scoring on road type and directness only.');
     } else {
       setStatus('Downloading parks, bayous and tree canopy from OpenStreetMap…');
+      // Small, cached after the first call, and scoring reads it synchronously.
+      await loadWalkability();
       const bbox = padBbox(bboxOf(scored), isTransit() ? 400 : 2000);
       try {
         layer = await loadGreenLayer(bbox);

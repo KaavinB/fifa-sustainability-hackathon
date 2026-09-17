@@ -10,6 +10,7 @@ import {
 import { samplePath, haversine, pointSegmentDistance } from './geo.js';
 import { insideGreen } from './greenspace.js';
 import { waterAlongRoute, WATER_BUFFER_M } from './water.js';
+import { pathWalkability } from './walkability.js';
 
 // Roads we would rather not walk, bike, or sit in traffic beside. OSRM step
 // names carry a `ref` (I-45, US-59, TX-288) for exactly the roads that hurt.
@@ -210,10 +211,17 @@ function buildProfile(route, samples, green) {
     }
   }
 
+  // Continuous 0..1, unlike the binary rows — this is what the profile chart
+  // was built to take, and what turns its blocks into a gradient.
+  const walk = pathWalkability(samples);
+
   return {
     total,
     distances,
     coords: samples,
+    walk: walk.values,
+    walkEase: walk.ease,
+    walkCoverage: walk.coverage,
     green: green.greenAt ?? [],
     shade: green.shadeAt ?? [],
     busy: busyAt,
@@ -331,6 +339,10 @@ export function scoreRoutes(routes, layer, mode, weights, scoreMode = 'absolute'
         turnsPerKm: roads.turnsPerKm,
         crowFlyKm: crowFlyM / 1000,
         efficiency,
+        // null, not zero, where the surface has no data — "unknown" and
+        // "unwalkable" are different claims.
+        walkEase: null,
+        walkCoverage: 0,
         waterStops: water.stops.length,
         longestDryKm: water.longestDryM / 1000,
         exposedMinutes,
@@ -342,6 +354,11 @@ export function scoreRoutes(routes, layer, mode, weights, scoreMode = 'absolute'
       },
     };
   });
+
+  for (const route of enriched) {
+    route.metrics.walkEase = route.profile?.walkEase ?? null;
+    route.metrics.walkCoverage = route.profile?.walkCoverage ?? 0;
+  }
 
   const shortest = Math.min(...enriched.map((r) => r.distance));
   const combine = (c) =>
