@@ -272,6 +272,7 @@ async function toggleEconomy() {
   button.disabled = true;
   await loadEconomy();
   const image = economyImage();
+  const lines = await countyBoundary();
   button.disabled = false;
 
   if (!image) {
@@ -279,16 +280,26 @@ async function toggleEconomy() {
     return;
   }
 
-  state.economyLayer = L.imageOverlay(
+  state.economyLayer = L.layerGroup().addTo(map);
+  const heat = L.imageOverlay(
     image.url,
     [
       [image.bbox.s, image.bbox.w],
       [image.bbox.n, image.bbox.e],
     ],
     { opacity: 1, interactive: false, className: 'econ-overlay' },
-  ).addTo(map);
+  ).addTo(state.economyLayer);
+
+  // Same outline as the walkability layer, so both read against the same
+  // boundary rather than each ending at an unexplained edge.
+  for (const [weight, color, opacity] of [[4.5, '#ffffff', 0.85], [1.6, '#7f1d1d', 0.95]]) {
+    for (const line of lines) {
+      L.polyline(line, { color, weight, opacity, interactive: false }).addTo(state.economyLayer);
+    }
+  }
+
   // Above the walkability wash, since `screen` needs something to brighten.
-  state.economyLayer.bringToFront();
+  heat.bringToFront();
   basemap.bringToBack?.();
 
   const meta = economyMeta();
@@ -2459,18 +2470,14 @@ function renderLegend() {
 /* ------------------------------------------------------------ weights --- */
 
 function buildWeightSliders() {
+  // Order is the order they are drawn. Tree canopy sits last because it is the
+  // one switched off by default.
   const labels = {
-    green: ['Green space', 'Parks, bayou trails, water'],
-    shade: [
-      'Tree canopy',
-      'Off by default — the walkability index already contains canopy and urban heat, ' +
-        'measured from LiDAR and land-surface temperature. Ours comes from ~2,000 mapped ' +
-        'OSM trees, so counting it too would weigh canopy twice, the second time badly. ' +
-        'Raise it if you want the OSM canopy counted as well.',
-    ],
-    quiet: ['Away from traffic', 'Avoids freeways and feeders'],
-    walk: ['Walkability', 'Sidewalks, crossings, destinations — the GIS cost surface'],
+    walk: ['Walkability', 'The GIS walkability index'],
     direct: ['Directness', "Doesn't wander"],
+    green: ['Green space', 'Parks, bayou trails, water'],
+    quiet: ['Away from traffic', 'Avoids freeways and feeders'],
+    shade: ['Tree canopy', 'Already inside walkability — raise to double-count it.'],
   };
 
   el('weights').innerHTML = Object.entries(labels)

@@ -230,10 +230,7 @@
           <button type="button" class="pick-btn" id="basemap-btn" title="Switch basemap">
             <span class="btn-icon">🗺</span><span class="btn-text">Streets</span>
           </button>
-                                      </div>
-        <div class="map-layers">
-          <span class="map-layers-label">Layers</span>
-          <button
+                                                <button
             type="button"
             class="pick-btn"
             id="walk-layer-btn"
@@ -261,19 +258,20 @@
             <span class="btn-icon">⚠️</span><span class="btn-text">Priority</span>
           </button>
         </div>
-
-        <div class="map-stack">
-        <div class="map-legends">
-<div class="map-legend" id="legend" hidden></div>
+        <div class="map-scales">
+          <div class="map-legend" id="walk-legend" hidden>
+            <strong>🚶 Walkability surface</strong>
+            <div class="walk-ramp"><span></span><span></span><span></span><span></span><span></span></div>
+            <div class="walk-ramp-labels"><span>hard to walk</span><span>easy</span></div>
+            <div class="walk-note">Rice GIS index · unshaded areas have no data</div>
+          </div>
 
           <div class="map-legend" id="economy-legend" hidden>
             <strong>💼 Economic intensity</strong>
             <div class="econ-ramp"><span></span><span></span><span></span><span></span><span></span></div>
             <div class="walk-ramp-labels"><span>fewer jobs</span><span>more</span></div>
             <div class="walk-note" id="economy-count"></div>
-            <div class="walk-note">
-              Log scale — the busiest cell holds 21,292 jobs, the median a handful.
-            </div>
+            <div class="walk-note">Log scale — the busiest cell holds 21,292 jobs.</div>
           </div>
 
           <div class="map-legend" id="priority-legend" hidden>
@@ -281,15 +279,14 @@
             <div class="prio-ramp"><span></span><span></span><span></span><span></span><span></span></div>
             <div class="walk-ramp-labels"><span>lower</span><span>highest priority</span></div>
             <div class="walk-note">
-              Trips carried × walkability cost. Marker area scales with the same
-              value, so size and shade say the same thing.
+              Trips carried × walkability cost. Marker area scales with the same value.
             </div>
           </div>
+        </div>
 
-          <div class="map-legend" id="walk-legend" hidden>
-            <strong>🚶 Walkability surface</strong>
-            <div class="walk-ramp"><span></span><span></span><span></span><span></span><span></span></div>
-            <div class="walk-ramp-labels"><span>hard to walk</span><span>easy</span></div>
+        <div class="map-stack">
+          <div class="map-legends">
+            <div class="map-legend" id="legend" hidden></div>
           </div>
 
           <div class="map-panel" id="weights-panel">
@@ -306,12 +303,9 @@
 
           <div class="map-panel-body" id="weights-body" hidden>
             <div class="map-panel-head">
-              <span>What counts as "pleasant"?</span>
+              <span></span>
               <button id="reset-weights" class="link-btn" type="button">reset</button>
             </div>
-            <p class="hint">
-              Drag these and the ranking updates instantly — no re-routing needed.
-            </p>
             <div id="weights"></div>
 
             <div class="field" style="margin: 14px 0 0">
@@ -326,7 +320,6 @@
         </div>
             <div class="walk-note">
               Rice GIS multidimensional index · unshaded areas have no data
-            </div>
           </div>
         </div>
       </main>

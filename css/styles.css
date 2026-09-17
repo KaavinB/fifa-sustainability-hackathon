@@ -1589,10 +1589,10 @@ input[type="text"],
   }
 
   .map-stack {
-    top: 8px;
+    top: 54px;
     bottom: auto;
     left: 8px;
-    width: 180px;
+    width: 160px;
   }
 
   .map-panel {
@@ -1855,84 +1855,29 @@ input[type="text"],
 .econ-ramp span:nth-child(4) { background: rgb(165, 243, 252); }
 .econ-ramp span:nth-child(5) { background: rgb(255, 255, 255); }
 
-/* -------------------------------------------------- map layer toggles --- */
+/* ------------------------------------------------------- map scales --- */
 
-/* Layer switches sit bottom-right, apart from the trip tools at the top and
-   the legends at bottom-left — three clusters, three jobs. */
-.map-layers {
+/* Legends for the layer overlays, bottom-right and right-aligned. The trip
+   tools and layer switches are top-right, the weights panel and route key are
+   bottom-left — so each corner does one job. */
+.map-scales {
   position: absolute;
   right: 12px;
   bottom: 22px;
   z-index: 600;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 6px 5px 10px;
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: var(--shadow);
-}
-
-.map-layers-label {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.map-layers .pick-btn {
-  box-shadow: none;
-}
-
-/* With three legends open the column used to grow past the top of the map and
-   take the weights panel with it. Only the legends scroll now; the panel is a
-   sibling outside that scroller, so it stays pinned to the bottom and reachable
-   no matter how many layers are on. */
-.map-stack {
-  max-height: calc(100% - 44px);
-  overflow: hidden; /* nothing may spill above the top of the map */
-}
-
-/* flex-shrink is what makes this work on a short laptop screen: the legends
-   give up space to the panel rather than pushing it off the top. min-height:0
-   is required or a flex child refuses to shrink below its content. */
-.map-legends {
-  display: flex;
   flex-direction: column;
+  align-items: flex-end;
   gap: 8px;
-  flex: 1 1 auto;
-  min-height: 0;
+  width: 250px;
+  max-height: calc(100% - 44px);
   overflow-y: auto;
   overflow-x: hidden;
-  padding-right: 2px;
   scrollbar-width: thin;
 }
 
-.map-panel {
-  flex: 0 0 auto;
-}
-
-@media (max-width: 900px) {
-  /* The sheet owns the bottom of the screen here, so the layer switches move
-     up under the trip tools instead. */
-  .map-layers {
-    top: 52px;
-    right: 8px;
-    bottom: auto;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    max-width: calc(100% - 200px);
-  }
-
-  .map-layers-label {
-    display: none;
-  }
-
-  .map-stack {
-    max-height: 60vh;
-  }
+.map-scales .map-legend {
+  width: 100%;
 }
 
 /* Map buttons carry an icon and a label; below 900px only the icon survives,
@@ -1948,18 +1893,20 @@ input[type="text"],
 }
 
 @media (max-width: 900px) {
-  .map-tools .btn-text,
-  .map-layers .btn-text {
+  /* Six text buttons will not fit a phone; the icons carry them, and the title
+     attribute keeps the meaning for a pointer and a screen reader. */
+  .map-tools .btn-text {
     display: none;
   }
 
-  .map-tools .pick-btn,
-  .map-layers .pick-btn {
+  .map-tools .pick-btn {
     min-width: 42px;
     padding: 9px 10px;
     text-align: center;
   }
 
+  /* One row of icons hugging the right, so it does not span the width and sit
+     on top of the panel in the opposite corner. */
   .map-tools {
     top: 8px;
     right: 8px;
@@ -1968,12 +1915,14 @@ input[type="text"],
     flex-wrap: nowrap;
   }
 
-  .map-layers {
-    top: 56px;
+  /* The sheet owns the bottom, so both columns hang below the button row —
+     panel on the left, scales on the right, narrow enough to clear each other
+     on a 375px screen. */
+  .map-scales {
+    top: 54px;
     right: 8px;
     bottom: auto;
-    flex-wrap: nowrap;
-    max-width: none;
-    padding: 4px 5px;
+    width: 160px;
+    max-height: 42vh;
   }
 }
