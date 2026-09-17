@@ -1809,3 +1809,29 @@ input[type="text"],
 .prio-ramp span:nth-child(3) { opacity: 0.6; }
 .prio-ramp span:nth-child(4) { opacity: 0.72; }
 .prio-ramp span:nth-child(5) { opacity: 0.85; }
+
+/* A slider sitting at zero has to say why, or it reads as broken. */
+.weight-note {
+  margin: 2px 0 4px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.econ-ramp {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1px;
+  margin: 6px 0 3px;
+}
+
+.econ-ramp span {
+  height: 8px;
+  background: #0f766e;
+}
+
+.econ-ramp span:nth-child(1) { opacity: 0.15; }
+.econ-ramp span:nth-child(2) { opacity: 0.35; }
+.econ-ramp span:nth-child(3) { opacity: 0.55; }
+.econ-ramp span:nth-child(4) { opacity: 0.75; }
+.econ-ramp span:nth-child(5) { opacity: 0.95; }

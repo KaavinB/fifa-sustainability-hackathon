@@ -367,6 +367,32 @@ Amber marks where the route *is* busy rather than where it is calm, both because
 amber already means "busy road" on the direction chips and because the stretches
 to avoid are the ones worth finding.
 
+## Economic intensity
+
+256,321 Harris County business records aggregated to a 150 m grid — 48,931
+occupied cells, 239 KB. Deliverable 2a names economic intensity as an input to
+corridor classification, which is where this belongs.
+
+It is deliberately **not** part of the route score. The walkability index
+already carries a "stops for rest and water" term at 15%, and adding business
+density beside it would count amenity twice — the same mistake the tree-canopy
+component was making.
+
+Two figures per cell: total jobs, and jobs in businesses people walk *to* —
+food, retail, personal services. The split matters because the single largest
+category in the file is offices of physicians (25,739 records), which would let
+the medical centre dominate a measure of street life.
+
+Worth stating: **only 27% of employee counts are measured.** The rest are
+modelled from the industry code, so for those records weighting by employees is
+substantially weighting by industry type. The layer is log-scaled, because the
+busiest cell holds 21,292 jobs against a median of a handful.
+
+Nothing from the source survives aggregation. The file carries names, phone
+numbers, gender and ethnicity; only counts per cell are written, and the import
+([`tools/xlsx-to-csv.py`](tools/xlsx-to-csv.py)) drops those columns before
+anything else sees them.
+
 ## Priority sites — where to spend first
 
 Deliverable 2b of the brief: high intensity crossed with low walkability.

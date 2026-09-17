@@ -324,3 +324,6 @@ export const DATA_EXTENT = { s: 29.490137, w: -95.980093, n: 30.189554, e: -94.8
 // Harris County outline, drawn with the walkability overlay to show where
 // the surface's coverage ends. Built by tools/build-county-boundary.py.
 export const COUNTY_URL = 'data/harris-county.json';
+
+// Economic intensity: jobs per cell, aggregated from the business directory.
+export const ECONOMY_URL = 'data/economic-intensity.json';

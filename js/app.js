@@ -12,6 +12,7 @@ import {
   METRO_LINKS,
   DATA_EXTENT,
   COUNTY_URL,
+  ECONOMY_URL,
 } from './config.js';
 import { bboxOf, padBbox, haversine } from './geo.js';
 import { fetchBaseRoutes, fetchViaRoute, pickGreenViaPoints, dedupe } from './routing.js';
@@ -21,6 +22,7 @@ import { buildDirections, stepDistance } from './directions.js';
 import { assignStopsToSteps } from './water.js';
 import { loadWalkability, walkabilityMeta, overlayImage } from './walkability.js';
 import { loadPriority, priorityMeta, radiusFor, colorFor, describeSite } from './priority.js';
+import { loadEconomy, economyMeta, overlayImage as economyImage } from './economy.js';
 import { renderProfile, seriesFor, sampleAt, describeSample } from './profile.js';
 import {
   planTransit,
@@ -73,6 +75,7 @@ const state = {
   basemap: 'streets',
   walkLayer: null,
   priorityLayer: null,
+  economyLayer: null,
   waterLayer: null,
   showWater: true,
   busy: false,
@@ -245,6 +248,55 @@ async function toggleWalkLayer() {
   button.classList.add('is-armed');
   button.setAttribute('aria-pressed', 'true');
   el('walk-legend').hidden = false;
+}
+
+/**
+ * Economic intensity, as a map layer.
+ *
+ * Log-scaled in economy.js, because the busiest cell holds 21,292 jobs against
+ * a median of a handful — on a linear ramp the county would look empty rather
+ * than unevenly dense.
+ */
+async function toggleEconomy() {
+  const button = el('economy-btn');
+
+  if (state.economyLayer) {
+    map.removeLayer(state.economyLayer);
+    state.economyLayer = null;
+    button.classList.remove('is-armed');
+    button.setAttribute('aria-pressed', 'false');
+    el('economy-legend').hidden = true;
+    return;
+  }
+
+  button.disabled = true;
+  await loadEconomy();
+  const image = economyImage();
+  button.disabled = false;
+
+  if (!image) {
+    setStatus('The economic intensity layer could not be loaded.', true);
+    return;
+  }
+
+  state.economyLayer = L.imageOverlay(
+    image.url,
+    [
+      [image.bbox.s, image.bbox.w],
+      [image.bbox.n, image.bbox.e],
+    ],
+    { opacity: 1, interactive: false, className: 'walk-overlay' },
+  ).addTo(map);
+  state.economyLayer.bringToBack();
+  basemap.bringToBack?.();
+
+  const meta = economyMeta();
+  el('economy-count').textContent = meta
+    ? `${meta.records.toLocaleString()} businesses · ${meta.employeeCounts.actual.toLocaleString()} employee counts measured, the rest modelled by industry`
+    : '';
+  button.classList.add('is-armed');
+  button.setAttribute('aria-pressed', 'true');
+  el('economy-legend').hidden = false;
 }
 
 /** The priority sites, on the map and in a ranked list. */
@@ -599,40 +651,69 @@ function pointAlong(points, fraction) {
   return points[Math.floor(points.length / 2)];
 }
 
-const LABEL_CLEARANCE_PX = 64;
+// A label is roughly 70x34px, so clearance has to exceed its own width or
+// two "clear" labels still overlap.
+const LABEL_CLEARANCE_PX = 82;
 
 /**
  * Where to hang a route's label. Normally its fixed position along the line;
  * if that lands on top of `avoid`, walk along the route in both directions
  * until the label is clear of it.
  */
-function labelPoint(route, avoid) {
+/**
+ * Where to hang one route's label.
+ *
+ * Three constraints, in order: it must be on screen, it must not cover the
+ * manoeuvre you just selected, and it must not land on another route's label.
+ * The last one matters most when zoomed in, because several routes share the
+ * same visible stretch and every label would otherwise anchor to its middle.
+ */
+function labelPoint(route, avoid, placed = []) {
   const base = route.labelAt ?? 0.5;
-
-  // Zoomed into one end of a route, its label can sit far off screen — you can
-  // see the line but not what it costs. Anchor to the visible stretch instead.
   const view = map.getBounds();
-  const visible = route.points.filter((p) => view.contains(p));
-  const anchored =
-    visible.length && !view.contains(pointAlong(route.points, base))
-      ? visible[Math.floor(visible.length / 2)]
-      : pointAlong(route.points, base);
 
-  if (!avoid) return anchored;
-
-  const target = map.latLngToContainerPoint(avoid);
-  if (map.latLngToContainerPoint(anchored).distanceTo(target) > LABEL_CLEARANCE_PX) return anchored;
-  const offsets = [0, 0.12, -0.12, 0.24, -0.24, 0.36, -0.36];
-
-  for (const offset of offsets) {
-    const fraction = base + offset;
-    if (fraction < 0.05 || fraction > 0.95) continue;
-    const candidate = pointAlong(route.points, fraction);
-    const distance = map.latLngToContainerPoint(candidate).distanceTo(target);
-    if (distance > LABEL_CLEARANCE_PX) return candidate;
+  // Candidate positions along this route: its own fixed spot first, then
+  // progressively further along in both directions.
+  const fractions = [base];
+  for (const step of [0.1, 0.2, 0.3, 0.4]) {
+    fractions.push(base + step, base - step);
   }
+
+  const obstacles = [...placed];
+  if (avoid) obstacles.push(avoid);
+
+  const clears = (point) => {
+    const at = map.latLngToContainerPoint(point);
+    return obstacles.every((o) => at.distanceTo(map.latLngToContainerPoint(o)) > LABEL_CLEARANCE_PX);
+  };
+
+  // Prefer a spot that is both visible and clear of everything already placed.
+  const onRoute = fractions
+    .filter((f) => f >= 0.04 && f <= 0.96)
+    .map((f) => pointAlong(route.points, f));
+
+  for (const point of onRoute) {
+    if (view.contains(point) && clears(point)) return point;
+  }
+
+  // Nothing on its usual line works — walk the visible stretch instead, which
+  // is what happens when the view is zoomed into part of the route.
+  const visible = route.points.filter((p) => view.contains(p));
+  if (visible.length) {
+    const stride = Math.max(1, Math.floor(visible.length / 12));
+    for (let i = Math.floor(visible.length / 2); i < visible.length; i += stride) {
+      if (clears(visible[i])) return visible[i];
+    }
+    for (let i = Math.floor(visible.length / 2); i >= 0; i -= stride) {
+      if (clears(visible[i])) return visible[i];
+    }
+    // Everything collides; the middle of what is visible still beats off screen.
+    return visible[Math.floor(visible.length / 2)];
+  }
+
   return pointAlong(route.points, base);
 }
+
 
 /** Google-style time pills sitting on each route line. */
 function drawRouteLabels() {
@@ -649,11 +730,14 @@ function drawRouteLabels() {
   const avoid =
     state.activeStep != null ? state.directions[state.activeStep]?.location : null;
 
+  const placed = [];
+
   state.routes.forEach((route, i) => {
     const isSelected = i === state.selected;
     // route.labelAt is fixed per route (see compare) so overlapping
     // alternatives keep distinct, stable label positions.
-    const at = labelPoint(route, avoid);
+    const at = labelPoint(route, avoid, placed);
+    placed.push(at);
 
     L.marker(at, {
       icon: L.divIcon({
@@ -2376,7 +2460,10 @@ function buildWeightSliders() {
     green: ['Green space', 'Parks, bayou trails, water'],
     shade: [
       'Tree canopy',
-      'Zero by default: the walkability index already contains canopy and heat, measured better. Raise it to weigh our OSM canopy too.',
+      'Off by default — the walkability index already contains canopy and urban heat, ' +
+        'measured from LiDAR and land-surface temperature. Ours comes from ~2,000 mapped ' +
+        'OSM trees, so counting it too would weigh canopy twice, the second time badly. ' +
+        'Raise it if you want the OSM canopy counted as well.',
     ],
     quiet: ['Away from traffic', 'Avoids freeways and feeders'],
     walk: ['Walkability', 'Sidewalks, crossings, destinations — the GIS cost surface'],
@@ -2391,6 +2478,11 @@ function buildWeightSliders() {
             <span title="${note}">${title}</span>
             <b id="w-${key}-val">${Math.round(DEFAULT_WEIGHTS[key] * 100)}%</b>
           </div>
+          ${
+            DEFAULT_WEIGHTS[key] === 0
+              ? `<p class="weight-note">${escapeHtml(note)}</p>`
+              : ''
+          }
           <input type="range" id="w-${key}" min="0" max="100" value="${Math.round(
             DEFAULT_WEIGHTS[key] * 100,
           )}" />
@@ -2513,6 +2605,7 @@ function init() {
 
   el('walk-layer-btn').addEventListener('click', toggleWalkLayer);
   el('priority-btn').addEventListener('click', togglePriority);
+  el('economy-btn').addEventListener('click', toggleEconomy);
   el('close-priority').addEventListener('click', togglePriority);
 
   el('basemap-btn').addEventListener('click', () => {
