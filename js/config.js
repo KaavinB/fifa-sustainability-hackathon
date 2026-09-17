@@ -250,15 +250,26 @@ export const IMPACT_SOURCES = [
 ];
 
 // Default weights for the composite "pleasantness" score. Tunable in the UI.
+// Walkability leads, because it is the better measurement.
+//
+// The GIS team's index is built from LiDAR canopy, LANDSAT, land-surface
+// temperature, the EPA walkability index and sidewalk density, across all of
+// Harris County at 30 m. The green and shade components here are OSM proxies
+// resting on roughly two thousand individually mapped trees. Where the two
+// measure the same thing, theirs wins.
+//
+// The OSM layers keep a smaller share rather than none, because they answer a
+// different question at a different scale: the index is area-level, and a
+// block group can average well-shaded while the specific sidewalk you are on
+// has no canopy at all. Directness keeps the largest of the remaining shares
+// for the opposite reason — it is the one thing the index does not measure,
+// being a property of the route rather than of the place.
 export const DEFAULT_WEIGHTS = {
-  green: 0.28, // share of the route next to parks, bayous, trees
-  shade: 0.22, // tree canopy along the route -> heat protection
-  quiet: 0.18, // avoids highways and big arterials
-  // The GIS team's cost surface. Weighted below green and shade on purpose:
-  // it is a composite that already folds in road context, so giving it more
-  // would quietly count traffic twice.
-  walk: 0.20,
-  direct: 0.12, // not a wandering detour; fewer turns
+  walk: 0.45, // the GIS team's multidimensional walkability index
+  direct: 0.18, // not in their index at all: route geometry, not place
+  green: 0.15, // parks and bayous beside the path, sampled every 75 m
+  shade: 0.12, // canopy on the path itself, finer than the index's area level
+  quiet: 0.10, // partly covered by the index's raw-walkability component
 };
 
 // Distances in metres.
