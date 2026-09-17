@@ -20,14 +20,17 @@ let overlayUrl = null;
 //
 // This has to stay readable on top of the walkability surface, which owns the
 // whole red-yellow-green range. Competing for hue would mud both layers, so
-// jobs are encoded as *added light* instead: a near-white core fading through
-// cyan, blended with `screen` so it brightens whatever is underneath without
-// shifting its colour. Walkability answers "what colour is this ground", jobs
-// answer "how bright is it" — two channels, no collision.
+// jobs are encoded as *added light* instead: blended with `screen` so they
+// brighten whatever is underneath without shifting its colour. Walkability
+// answers "what colour is this ground", jobs answer "how bright is it".
+//
+// Purple is the one hue nothing else on the map uses — the walkability ramp
+// owns red through green, water markers own blue, priority owns crimson. Cyan
+// was tried first and read as teal against the green end of the ramp.
 const HEAT = [
-  [0.0, [8, 145, 178]], // cyan, sparse
-  [0.45, [34, 211, 238]],
-  [0.75, [165, 243, 252]],
+  [0.0, [107, 33, 168]], // deep purple, sparse
+  [0.45, [168, 85, 247]],
+  [0.75, [233, 213, 255]],
   [1.0, [255, 255, 255]], // white hot
 ];
 
