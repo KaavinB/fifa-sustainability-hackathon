@@ -96,10 +96,40 @@ export function pathWalkability(points) {
 
 export const walkabilityMeta = () => grid || null;
 
-// The overlay hue, matching the profile chart's walkability row so the two
-// views of the same number never disagree: stronger means easier on foot,
-// everywhere it appears.
-const OVERLAY_RGB = [30, 64, 175]; // #1e40af
+// Red through yellow to green, the convention for suitability surfaces:
+// green is easy on foot, red is hard.
+//
+// Red-green is the classic colour-vision failure, so the ramp is chosen to
+// carry the same information in LIGHTNESS as well as hue — dark red at the bad
+// end, pale yellow in the middle, mid green at the good end. A deuteranope
+// loses the hue difference but keeps the light-dark one, which is why the ramp
+// runs through yellow rather than straight from red to green.
+const RAMP = [
+  [0.0, [165, 0, 38]], // dark red — hardest
+  [0.25, [244, 109, 67]],
+  [0.5, [254, 224, 139]], // pale yellow — middling
+  [0.75, [166, 217, 106]],
+  [1.0, [26, 152, 80]], // green — easiest
+];
+
+function rampColor(t) {
+  const x = Math.min(1, Math.max(0, t));
+  for (let i = 1; i < RAMP.length; i++) {
+    if (x <= RAMP[i][0]) {
+      const [t0, c0] = RAMP[i - 1];
+      const [t1, c1] = RAMP[i];
+      const k = (x - t0) / (t1 - t0);
+      return [
+        Math.round(c0[0] + (c1[0] - c0[0]) * k),
+        Math.round(c0[1] + (c1[1] - c0[1]) * k),
+        Math.round(c0[2] + (c1[2] - c0[2]) * k),
+      ];
+    }
+  }
+  return RAMP[RAMP.length - 1][1];
+}
+
+export const WALK_RAMP = RAMP.map(([stop, rgb]) => ({ stop, css: `rgb(${rgb.join(',')})` }));
 
 let overlayUrl = null;
 
@@ -120,7 +150,6 @@ export function overlayImage() {
   canvas.height = rows;
   const ctx = canvas.getContext('2d');
   const image = ctx.createImageData(cols, rows);
-  const [r, g, b] = OVERLAY_RGB;
 
   for (let i = 0; i < cells.length; i++) {
     const raw = cells[i];
@@ -131,11 +160,13 @@ export function overlayImage() {
     }
     const normalised = raw / 254;
     const ease = grid.higherIsWorse ? 1 - normalised : normalised;
+    const [r, g, b] = rampColor(ease);
     image.data[p] = r;
     image.data[p + 1] = g;
     image.data[p + 2] = b;
-    // Capped well below opaque: this sits under the routes, not over them.
-    image.data[p + 3] = Math.round(20 + 150 * ease);
+    // Even alpha across the ramp: the colour carries the value, so varying
+    // opacity as well would make the good end fade out and read as missing.
+    image.data[p + 3] = 150;
   }
 
   ctx.putImageData(image, 0, 0);

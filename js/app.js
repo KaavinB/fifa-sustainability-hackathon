@@ -285,9 +285,10 @@ async function toggleEconomy() {
       [image.bbox.s, image.bbox.w],
       [image.bbox.n, image.bbox.e],
     ],
-    { opacity: 1, interactive: false, className: 'walk-overlay' },
+    { opacity: 1, interactive: false, className: 'econ-overlay' },
   ).addTo(map);
-  state.economyLayer.bringToBack();
+  // Above the walkability wash, since `screen` needs something to brighten.
+  state.economyLayer.bringToFront();
   basemap.bringToBack?.();
 
   const meta = economyMeta();
@@ -400,7 +401,9 @@ function setBasemap(key) {
   // Keep the basemap under the routes after swapping.
   basemap.bringToBack?.();
   const button = el('basemap-btn');
-  if (button) button.textContent = `🗺 ${BASEMAPS[key].label}`;
+  const label = button?.querySelector('.btn-text');
+  if (label) label.textContent = BASEMAPS[key].label;
+  if (button) button.title = `Basemap: ${BASEMAPS[key].label}`;
 }
 
 // Start is a plain white dot sitting on the point; the destination is a

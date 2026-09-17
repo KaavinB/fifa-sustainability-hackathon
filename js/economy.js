@@ -16,9 +16,39 @@ let grid = null;
 let loading = null;
 let overlayUrl = null;
 
-// Teal, kept clear of the walkability indigo and the priority red — the three
-// overlays are read one at a time but never want to be confused for each other.
-const RGB = [15, 118, 110]; // #0f766e
+// A luminance heatmap, not a coloured one.
+//
+// This has to stay readable on top of the walkability surface, which owns the
+// whole red-yellow-green range. Competing for hue would mud both layers, so
+// jobs are encoded as *added light* instead: a near-white core fading through
+// cyan, blended with `screen` so it brightens whatever is underneath without
+// shifting its colour. Walkability answers "what colour is this ground", jobs
+// answer "how bright is it" — two channels, no collision.
+const HEAT = [
+  [0.0, [8, 145, 178]], // cyan, sparse
+  [0.45, [34, 211, 238]],
+  [0.75, [165, 243, 252]],
+  [1.0, [255, 255, 255]], // white hot
+];
+
+function heatColor(t) {
+  const x = Math.min(1, Math.max(0, t));
+  for (let i = 1; i < HEAT.length; i++) {
+    if (x <= HEAT[i][0]) {
+      const [t0, c0] = HEAT[i - 1];
+      const [t1, c1] = HEAT[i];
+      const k = (x - t0) / (t1 - t0);
+      return [
+        Math.round(c0[0] + (c1[0] - c0[0]) * k),
+        Math.round(c0[1] + (c1[1] - c0[1]) * k),
+        Math.round(c0[2] + (c1[2] - c0[2]) * k),
+      ];
+    }
+  }
+  return HEAT[HEAT.length - 1][1];
+}
+
+export const HEAT_RAMP = HEAT.map(([stop, rgb]) => ({ stop, css: `rgb(${rgb.join(',')})` }));
 
 export async function loadEconomy() {
   if (grid !== null) return grid;
@@ -104,16 +134,18 @@ export function overlayImage() {
   canvas.height = rows;
   const ctx = canvas.getContext('2d');
   const image = ctx.createImageData(cols, rows);
-  const [r, g, b] = RGB;
   const ceiling = Math.log1p(topJobs);
 
   for (const [key, cell] of byCell) {
     const p = key * 4;
     const strength = ceiling > 0 ? Math.log1p(cell.jobs) / ceiling : 0;
+    const [r, g, b] = heatColor(strength);
     image.data[p] = r;
     image.data[p + 1] = g;
     image.data[p + 2] = b;
-    image.data[p + 3] = Math.round(25 + 205 * strength);
+    // Alpha rises with intensity as well as colour, so sparse cells stay faint
+    // rather than painting the whole county cyan.
+    image.data[p + 3] = Math.round(30 + 200 * strength);
   }
 
   ctx.putImageData(image, 0, 0);

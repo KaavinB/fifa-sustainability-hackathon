@@ -1271,8 +1271,9 @@ input[type="text"],
 .map-panel-body {
   padding: 2px 12px 12px;
   border-top: 1px solid var(--line);
-  /* Never taller than the map it floats over. */
-  max-height: min(60vh, 460px);
+  /* Never taller than the map it floats over, and tighter on short screens so
+     the legends above it keep some room. */
+  max-height: min(46vh, 420px);
   overflow-y: auto;
 }
 
@@ -1700,10 +1701,21 @@ input[type="text"],
 /* ------------------------------------------------ walkability overlay --- */
 
 /* Crisp cells rather than a blurred wash: each pixel is a real 75 m
-   measurement, and smoothing it invents values between them. */
+   measurement, and smoothing it invents values between them. Multiply darkens
+   the basemap, which keeps street geometry legible through the colour. */
 .walk-overlay {
   image-rendering: pixelated;
   mix-blend-mode: multiply;
+}
+
+/* The jobs layer is the opposite operation: `screen` adds light rather than
+   removing it, so it reads as a glow over the walkability colour instead of
+   muddying it. The blur is what turns 150 m cells into a heatmap — the
+   underlying data is blocky, and for a density surface smoothing is the
+   honest rendering rather than an invention. */
+.econ-overlay {
+  mix-blend-mode: screen;
+  filter: blur(5px);
 }
 
 .walk-ramp {
@@ -1713,16 +1725,16 @@ input[type="text"],
   margin: 6px 0 3px;
 }
 
+/* Mirrors RAMP in walkability.js — red through yellow to green. */
 .walk-ramp span {
   height: 8px;
-  background: #1e40af;
 }
 
-.walk-ramp span:nth-child(1) { opacity: 0.12; }
-.walk-ramp span:nth-child(2) { opacity: 0.3; }
-.walk-ramp span:nth-child(3) { opacity: 0.5; }
-.walk-ramp span:nth-child(4) { opacity: 0.7; }
-.walk-ramp span:nth-child(5) { opacity: 0.92; }
+.walk-ramp span:nth-child(1) { background: rgb(165, 0, 38); }
+.walk-ramp span:nth-child(2) { background: rgb(244, 109, 67); }
+.walk-ramp span:nth-child(3) { background: rgb(254, 224, 139); }
+.walk-ramp span:nth-child(4) { background: rgb(166, 217, 106); }
+.walk-ramp span:nth-child(5) { background: rgb(26, 152, 80); }
 
 .walk-ramp-labels {
   display: flex;
@@ -1825,13 +1837,143 @@ input[type="text"],
   margin: 6px 0 3px;
 }
 
-.econ-ramp span {
-  height: 8px;
-  background: #0f766e;
+/* Mirrors HEAT in economy.js — cyan to white hot, shown on a dark strip
+   because a screen-blended glow is invisible against white. */
+.econ-ramp {
+  background: #1f2937;
+  padding: 2px;
+  border-radius: 3px;
 }
 
-.econ-ramp span:nth-child(1) { opacity: 0.15; }
-.econ-ramp span:nth-child(2) { opacity: 0.35; }
-.econ-ramp span:nth-child(3) { opacity: 0.55; }
-.econ-ramp span:nth-child(4) { opacity: 0.75; }
-.econ-ramp span:nth-child(5) { opacity: 0.95; }
+.econ-ramp span {
+  height: 8px;
+}
+
+.econ-ramp span:nth-child(1) { background: rgb(8, 145, 178); }
+.econ-ramp span:nth-child(2) { background: rgb(34, 211, 238); }
+.econ-ramp span:nth-child(3) { background: rgb(100, 227, 245); }
+.econ-ramp span:nth-child(4) { background: rgb(165, 243, 252); }
+.econ-ramp span:nth-child(5) { background: rgb(255, 255, 255); }
+
+/* -------------------------------------------------- map layer toggles --- */
+
+/* Layer switches sit bottom-right, apart from the trip tools at the top and
+   the legends at bottom-left — three clusters, three jobs. */
+.map-layers {
+  position: absolute;
+  right: 12px;
+  bottom: 22px;
+  z-index: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 5px 10px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+
+.map-layers-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.map-layers .pick-btn {
+  box-shadow: none;
+}
+
+/* With three legends open the column used to grow past the top of the map and
+   take the weights panel with it. Only the legends scroll now; the panel is a
+   sibling outside that scroller, so it stays pinned to the bottom and reachable
+   no matter how many layers are on. */
+.map-stack {
+  max-height: calc(100% - 44px);
+  overflow: hidden; /* nothing may spill above the top of the map */
+}
+
+/* flex-shrink is what makes this work on a short laptop screen: the legends
+   give up space to the panel rather than pushing it off the top. min-height:0
+   is required or a flex child refuses to shrink below its content. */
+.map-legends {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 2px;
+  scrollbar-width: thin;
+}
+
+.map-panel {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 900px) {
+  /* The sheet owns the bottom of the screen here, so the layer switches move
+     up under the trip tools instead. */
+  .map-layers {
+    top: 52px;
+    right: 8px;
+    bottom: auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    max-width: calc(100% - 200px);
+  }
+
+  .map-layers-label {
+    display: none;
+  }
+
+  .map-stack {
+    max-height: 60vh;
+  }
+}
+
+/* Map buttons carry an icon and a label; below 900px only the icon survives,
+   because three text buttons plus the legend column do not fit a phone. The
+   title attribute keeps the meaning available to a pointer and a screen
+   reader either way. */
+.btn-icon {
+  font-style: normal;
+}
+
+.btn-text {
+  margin-left: 5px;
+}
+
+@media (max-width: 900px) {
+  .map-tools .btn-text,
+  .map-layers .btn-text {
+    display: none;
+  }
+
+  .map-tools .pick-btn,
+  .map-layers .pick-btn {
+    min-width: 42px;
+    padding: 9px 10px;
+    text-align: center;
+  }
+
+  .map-tools {
+    top: 8px;
+    right: 8px;
+    left: auto;
+    max-width: none;
+    flex-wrap: nowrap;
+  }
+
+  .map-layers {
+    top: 56px;
+    right: 8px;
+    bottom: auto;
+    flex-wrap: nowrap;
+    max-width: none;
+    padding: 4px 5px;
+  }
+}

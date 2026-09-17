@@ -225,11 +225,14 @@
       <main class="map-wrap">
         <div id="map"></div>
         <div class="map-tools">
-          <button type="button" class="pick-btn" data-pick="origin">📍 Set start</button>
-          <button type="button" class="pick-btn" data-pick="destination">🏁 Set finish</button>
+          <button type="button" class="pick-btn" data-pick="origin"><span class="btn-icon">📍</span><span class="btn-text">Set start</span></button>
+          <button type="button" class="pick-btn" data-pick="destination"><span class="btn-icon">🏁</span><span class="btn-text">Set finish</span></button>
           <button type="button" class="pick-btn" id="basemap-btn" title="Switch basemap">
-            🗺 Streets
+            <span class="btn-icon">🗺</span><span class="btn-text">Streets</span>
           </button>
+                                      </div>
+        <div class="map-layers">
+          <span class="map-layers-label">Layers</span>
           <button
             type="button"
             class="pick-btn"
@@ -237,7 +240,7 @@
             title="Show the walkability surface"
             aria-pressed="false"
           >
-            🚶 Walkability
+            <span class="btn-icon">🚶</span><span class="btn-text">Walkability</span>
           </button>
           <button
             type="button"
@@ -246,7 +249,7 @@
             title="Jobs on the ground, from the business directory"
             aria-pressed="false"
           >
-            💼 Jobs
+            <span class="btn-icon">💼</span><span class="btn-text">Jobs</span>
           </button>
           <button
             type="button"
@@ -255,11 +258,41 @@
             title="Where to invest first: busiest and hardest to walk"
             aria-pressed="false"
           >
-            ⚠️ Priority
+            <span class="btn-icon">⚠️</span><span class="btn-text">Priority</span>
           </button>
         </div>
+
         <div class="map-stack">
-        <div class="map-panel" id="weights-panel">
+        <div class="map-legends">
+<div class="map-legend" id="legend" hidden></div>
+
+          <div class="map-legend" id="economy-legend" hidden>
+            <strong>💼 Economic intensity</strong>
+            <div class="econ-ramp"><span></span><span></span><span></span><span></span><span></span></div>
+            <div class="walk-ramp-labels"><span>fewer jobs</span><span>more</span></div>
+            <div class="walk-note" id="economy-count"></div>
+            <div class="walk-note">
+              Log scale — the busiest cell holds 21,292 jobs, the median a handful.
+            </div>
+          </div>
+
+          <div class="map-legend" id="priority-legend" hidden>
+            <strong>⚠️ Priority sites</strong>
+            <div class="prio-ramp"><span></span><span></span><span></span><span></span><span></span></div>
+            <div class="walk-ramp-labels"><span>lower</span><span>highest priority</span></div>
+            <div class="walk-note">
+              Trips carried × walkability cost. Marker area scales with the same
+              value, so size and shade say the same thing.
+            </div>
+          </div>
+
+          <div class="map-legend" id="walk-legend" hidden>
+            <strong>🚶 Walkability surface</strong>
+            <div class="walk-ramp"><span></span><span></span><span></span><span></span><span></span></div>
+            <div class="walk-ramp-labels"><span>hard to walk</span><span>easy</span></div>
+          </div>
+
+          <div class="map-panel" id="weights-panel">
           <button
             type="button"
             class="map-panel-toggle"
@@ -291,33 +324,6 @@
             </div>
           </div>
         </div>
-
-          <div class="map-legend" id="legend" hidden></div>
-
-          <div class="map-legend" id="economy-legend" hidden>
-            <strong>💼 Economic intensity</strong>
-            <div class="econ-ramp"><span></span><span></span><span></span><span></span><span></span></div>
-            <div class="walk-ramp-labels"><span>fewer jobs</span><span>more</span></div>
-            <div class="walk-note" id="economy-count"></div>
-            <div class="walk-note">
-              Log scale — the busiest cell holds 21,292 jobs, the median a handful.
-            </div>
-          </div>
-
-          <div class="map-legend" id="priority-legend" hidden>
-            <strong>⚠️ Priority sites</strong>
-            <div class="prio-ramp"><span></span><span></span><span></span><span></span><span></span></div>
-            <div class="walk-ramp-labels"><span>lower</span><span>highest priority</span></div>
-            <div class="walk-note">
-              Trips carried × walkability cost. Marker area scales with the same
-              value, so size and shade say the same thing.
-            </div>
-          </div>
-
-          <div class="map-legend" id="walk-legend" hidden>
-            <strong>🚶 Walkability surface</strong>
-            <div class="walk-ramp"><span></span><span></span><span></span><span></span><span></span></div>
-            <div class="walk-ramp-labels"><span>harder</span><span>easier on foot</span></div>
             <div class="walk-note">
               Rice GIS multidimensional index · unshaded areas have no data
             </div>
