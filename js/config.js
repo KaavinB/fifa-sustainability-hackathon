@@ -320,3 +320,7 @@ export const PRIORITY_URL = 'data/priority.json';
 // shows what is covered rather than a single neighbourhood. Printed by
 // tools/build-walkability-grid.py; update it if the raster's extent changes.
 export const DATA_EXTENT = { s: 29.490137, w: -95.980093, n: 30.189554, e: -94.89403 };
+
+// Harris County outline, drawn with the walkability overlay to show where
+// the surface's coverage ends. Built by tools/build-county-boundary.py.
+export const COUNTY_URL = 'data/harris-county.json';

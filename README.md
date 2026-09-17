@@ -404,6 +404,26 @@ appears, it means something.
 
 ## Walkability surface
 
+Scored as **ease per unit of direct progress**, not ease per step. Averaging
+quality along a route is blind to length, and the park detours this app
+generates exploited exactly that: routing through Hermann Park raises the mean
+while making you walk 70% further, so with walkability weighted heavily the
+longest route won. Multiplying by crow-flies efficiency turns the component
+into total burden — a route has to be pleasant *and* actually get you there.
+
+Sharpening the directness penalty was tried first and does not work. At 90%
+walkability, directness carries 4% of the weight, and no penalty is sharp
+enough to matter at 4%:
+
+```
+                    km   +%   direct now → sharpened   score
+Route A           1.54    0      0.56 → 0.38            77
+Park detour 1     2.63   70      0.41 → 0.19            78  ← still won
+```
+
+With burden scoring, the same comparison at the same weighting puts Route A
+first at 61 and the detour at 39.
+
 It carries 20% of the default weight — below green and shade deliberately,
 because it is a composite that already folds in road context, and giving it
 more would quietly count traffic twice. Where the surface has no coverage the

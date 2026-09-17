@@ -11,6 +11,7 @@ import {
   IMPACT_SOURCES,
   METRO_LINKS,
   DATA_EXTENT,
+  COUNTY_URL,
 } from './config.js';
 import { bboxOf, padBbox, haversine } from './geo.js';
 import { fetchBaseRoutes, fetchViaRoute, pickGreenViaPoints, dedupe } from './routing.js';
@@ -177,6 +178,20 @@ let basemap = makeBasemap('streets').addTo(map);
  * the surface has no data the image is transparent, so a gap reads as a gap
  * rather than as a colour that means something.
  */
+let countyLines = null;
+
+/** The county outline, so the surface's edge reads as a boundary not a crop. */
+async function countyBoundary() {
+  if (countyLines) return countyLines;
+  try {
+    const res = await fetch(COUNTY_URL);
+    countyLines = res.ok ? (await res.json()).lines || [] : [];
+  } catch {
+    countyLines = [];
+  }
+  return countyLines;
+}
+
 async function toggleWalkLayer() {
   const button = el('walk-layer-btn');
 
@@ -199,15 +214,32 @@ async function toggleWalkLayer() {
     return;
   }
 
-  state.walkLayer = L.imageOverlay(
+  const lines = await countyBoundary();
+
+  state.walkLayer = L.layerGroup().addTo(map);
+  const surface = L.imageOverlay(
     image.url,
     [
       [image.bbox.s, image.bbox.w],
       [image.bbox.n, image.bbox.e],
     ],
     { opacity: 1, interactive: false, className: 'walk-overlay' },
-  ).addTo(map);
-  state.walkLayer.bringToBack();
+  ).addTo(state.walkLayer);
+
+  // Two passes: a wide pale casing under a thin dark line, so the boundary
+  // stays legible over both the pale and the saturated parts of the surface.
+  for (const width of [[4.5, '#ffffff', 0.85], [1.6, '#7f1d1d', 0.95]]) {
+    for (const line of lines) {
+      L.polyline(line, {
+        color: width[1],
+        weight: width[0],
+        opacity: width[2],
+        interactive: false,
+      }).addTo(state.walkLayer);
+    }
+  }
+
+  surface.bringToBack();
   basemap.bringToBack?.();
 
   button.classList.add('is-armed');
@@ -225,6 +257,7 @@ async function togglePriority() {
     button.classList.remove('is-armed');
     button.setAttribute('aria-pressed', 'false');
     el('priority-card').hidden = true;
+    el('priority-legend').hidden = true;
     return;
   }
 
@@ -262,6 +295,7 @@ async function togglePriority() {
 
   button.classList.add('is-armed');
   button.setAttribute('aria-pressed', 'true');
+  el('priority-legend').hidden = false;
   renderPriorityList(sites, meta);
   map.fitBounds(L.latLngBounds(sites.map((s) => s.coord)), boundsOptions());
 }
@@ -574,9 +608,20 @@ const LABEL_CLEARANCE_PX = 64;
  */
 function labelPoint(route, avoid) {
   const base = route.labelAt ?? 0.5;
-  if (!avoid) return pointAlong(route.points, base);
+
+  // Zoomed into one end of a route, its label can sit far off screen — you can
+  // see the line but not what it costs. Anchor to the visible stretch instead.
+  const view = map.getBounds();
+  const visible = route.points.filter((p) => view.contains(p));
+  const anchored =
+    visible.length && !view.contains(pointAlong(route.points, base))
+      ? visible[Math.floor(visible.length / 2)]
+      : pointAlong(route.points, base);
+
+  if (!avoid) return anchored;
 
   const target = map.latLngToContainerPoint(avoid);
+  if (map.latLngToContainerPoint(anchored).distanceTo(target) > LABEL_CLEARANCE_PX) return anchored;
   const offsets = [0, 0.12, -0.12, 0.24, -0.24, 0.36, -0.36];
 
   for (const offset of offsets) {
@@ -2377,6 +2422,12 @@ function normaliseWeights() {
 
 // Leaflet caches its container size, so a rotation or a resize leaves the
 // map rendering into stale dimensions until it is told otherwise.
+// Labels are anchored to what is on screen, so they have to be recomputed
+// when what is on screen changes.
+map.on('moveend zoomend', () => {
+  if (state.routes.length) drawRouteLabels();
+});
+
 function watchViewport() {
   let timer = null;
   const refresh = () => {

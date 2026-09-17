@@ -385,7 +385,11 @@ export function scoreRoutes(routes, layer, mode, weights, scoreMode = 'absolute'
   );
   // Routes with no coverage stay null through normalisation rather than
   // becoming the bottom of the range.
-  const walkValues = enriched.map((r) => r.metrics.walkEase);
+  const walkValues = enriched.map((r) =>
+    r.metrics.walkEase === null || r.metrics.walkEase === undefined
+      ? null
+      : r.metrics.walkEase * r.metrics.efficiency,
+  );
   const walkKnown = walkValues.filter((v) => v !== null && v !== undefined);
   const walkN = walkKnown.length
     ? (() => {
@@ -405,8 +409,20 @@ export function scoreRoutes(routes, layer, mode, weights, scoreMode = 'absolute'
       // Mostly "does it go straight there", tempered by how fiddly it is:
       // a route with more than ~15 turns per km is tiring however direct.
       direct: clamp01(0.7 * m.efficiency + 0.3 * clamp01(1 - m.turnsPerKm / 15)),
-      // Already 0..1 with 1 meaning easiest; walkability.js did the inversion.
-      walk: m.walkEase === null || m.walkEase === undefined ? null : clamp01(m.walkEase),
+      // Ease per unit of direct progress, not ease per step.
+      //
+      // Mean ease alone is blind to length, and the park detours this app
+      // generates exploit that: routing through Hermann Park raises the
+      // average while making you walk 70% further, so the longest route won.
+      // Multiplying by crow-flies efficiency turns the component into total
+      // burden — a route has to be pleasant *and* get you there to score.
+      //
+      // It does overlap directness, deliberately: length should cost you both
+      // in how far you walk and in how much walking you are exposed to.
+      walk:
+        m.walkEase === null || m.walkEase === undefined
+          ? null
+          : clamp01(m.walkEase * m.efficiency),
     };
 
     const relative = {
