@@ -251,10 +251,14 @@ export const IMPACT_SOURCES = [
 
 // Default weights for the composite "pleasantness" score. Tunable in the UI.
 export const DEFAULT_WEIGHTS = {
-  green: 0.35, // share of the route next to parks, bayous, trees
-  shade: 0.25, // tree canopy along the route -> heat protection
-  quiet: 0.25, // avoids highways and big arterials
-  direct: 0.15, // not a wandering detour; fewer turns
+  green: 0.28, // share of the route next to parks, bayous, trees
+  shade: 0.22, // tree canopy along the route -> heat protection
+  quiet: 0.18, // avoids highways and big arterials
+  // The GIS team's cost surface. Weighted below green and shade on purpose:
+  // it is a composite that already folds in road context, so giving it more
+  // would quietly count traffic twice.
+  walk: 0.20,
+  direct: 0.12, // not a wandering detour; fewer turns
 };
 
 // Distances in metres.

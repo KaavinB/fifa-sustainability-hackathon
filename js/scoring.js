@@ -361,8 +361,21 @@ export function scoreRoutes(routes, layer, mode, weights, scoreMode = 'absolute'
   }
 
   const shortest = Math.min(...enriched.map((r) => r.distance));
-  const combine = (c) =>
-    100 * (weights.green * c.green + weights.shade * c.shade + weights.quiet * c.quiet + weights.direct * c.direct);
+  // Walkability is null wherever the cost surface has no coverage — about 43%
+  // of its extent. Scoring that as zero would punish a route for leaving the
+  // study area, so the component drops out and the remaining weights are
+  // renormalised: the score stays comparable, it just rests on less evidence.
+  const combine = (c) => {
+    let total = 0;
+    let used = 0;
+    for (const [key, weight] of Object.entries(weights)) {
+      const value = c[key];
+      if (value === null || value === undefined || !Number.isFinite(value)) continue;
+      total += weight * value;
+      used += weight;
+    }
+    return used > 0 ? (100 * total) / used : 0;
+  };
 
   const greenN = normalise(enriched.map((r) => r.metrics.greenShare));
   const shadeN = normalise(enriched.map((r) => r.metrics.shadeShare));
@@ -370,6 +383,17 @@ export function scoreRoutes(routes, layer, mode, weights, scoreMode = 'absolute'
   const directN = normalise(
     enriched.map((r) => -(r.distance / shortest - 1) * 4 - r.metrics.turnsPerKm / 6),
   );
+  // Routes with no coverage stay null through normalisation rather than
+  // becoming the bottom of the range.
+  const walkValues = enriched.map((r) => r.metrics.walkEase);
+  const walkKnown = walkValues.filter((v) => v !== null && v !== undefined);
+  const walkN = walkKnown.length
+    ? (() => {
+        const scaled = normalise(walkKnown);
+        let cursor = 0;
+        return walkValues.map((v) => (v === null || v === undefined ? null : scaled[cursor++]));
+      })()
+    : walkValues.map(() => null);
 
   enriched.forEach((route, i) => {
     const m = route.metrics;
@@ -381,9 +405,17 @@ export function scoreRoutes(routes, layer, mode, weights, scoreMode = 'absolute'
       // Mostly "does it go straight there", tempered by how fiddly it is:
       // a route with more than ~15 turns per km is tiring however direct.
       direct: clamp01(0.7 * m.efficiency + 0.3 * clamp01(1 - m.turnsPerKm / 15)),
+      // Already 0..1 with 1 meaning easiest; walkability.js did the inversion.
+      walk: m.walkEase === null || m.walkEase === undefined ? null : clamp01(m.walkEase),
     };
 
-    const relative = { green: greenN[i], shade: shadeN[i], quiet: quietN[i], direct: directN[i] };
+    const relative = {
+      green: greenN[i],
+      shade: shadeN[i],
+      quiet: quietN[i],
+      direct: directN[i],
+      walk: walkN[i],
+    };
 
     route.components = { absolute, relative };
     route.scores = { absolute: combine(absolute), relative: combine(relative) };

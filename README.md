@@ -17,9 +17,10 @@ a person walks, rides, or gives up and calls a car:
 | **Tree canopy** | share of the route under mapped trees, tree rows, or woodland | OpenStreetMap |
 | **Away from traffic** | share of route distance on freeways, tollways, and feeder roads | OSRM step data |
 | **Directness** | detour vs. the shortest option, plus turns per km | OSRM |
+| **Walkability** | the project's walkability cost surface, sampled along the route | GIS team raster |
 | **Heat** | the NWS heat index for the hours the trip actually occupies | Open-Meteo, computed here |
 
-Those four combine into a 0–100 **pleasantness score** with weights the user controls live.
+Those five combine into a 0–100 **pleasantness score** with weights the user controls live.
 Alongside it the app reports the sustainability numbers: CO₂ emitted or avoided versus driving
 the same trip solo, the METRO-bus equivalent, calories burned, and — the Houston-specific ones —
 **unshaded minutes outdoors** and the **longest stretch without drinking water**.
@@ -367,6 +368,14 @@ amber already means "busy road" on the direction chips and because the stretches
 to avoid are the ones worth finding.
 
 ## Walkability surface
+
+It carries 20% of the default weight — below green and shade deliberately,
+because it is a composite that already folds in road context, and giving it
+more would quietly count traffic twice. Where the surface has no coverage the
+component drops out and the remaining weights are renormalised, so a route is
+never punished for leaving the study area; the score stays comparable, it just
+rests on less evidence.
+
 
 The first row on the profile drawn from a real raster rather than from OSM
 geometry, and the first that is continuous rather than binary — which is the

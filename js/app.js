@@ -2151,6 +2151,7 @@ function buildWeightSliders() {
     green: ['Green space', 'Parks, bayou trails, water'],
     shade: ['Tree canopy', 'Shade = survivable heat'],
     quiet: ['Away from traffic', 'Avoids freeways and feeders'],
+    walk: ['Walkability', 'Sidewalks, crossings, destinations — the GIS cost surface'],
     direct: ['Directness', "Doesn't wander"],
   };
 
