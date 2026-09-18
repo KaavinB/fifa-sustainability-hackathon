@@ -80,6 +80,7 @@ const state = {
   economyLayer: null,
   demandLayer: null,
   demandMode: null,
+  demandRun: 'venues',
   waterLayer: null,
   showWater: true,
   busy: false,
@@ -321,16 +322,22 @@ const DEMAND_LABEL = {
 };
 
 /**
- * One button, three states: off → event-day → everyday → off.
+ * Foot traffic, as an on/off layer with a named run.
  *
- * The two runs are mutually exclusive rather than separate toggles. They are
- * both intensity surfaces, and two of those at once is unreadable — the honest
- * comparison is one and then the other. A single cycling control also keeps
- * the button row down to four layers, which is what fits a phone.
+ * This was one button cycling off → event-day → everyday → off. Nothing on
+ * screen said a second press gave a different map, and getting back to the
+ * first run meant pressing through "off". The button is now an ordinary
+ * toggle, and the two runs are named buttons in the legend — both visible,
+ * either reachable in one press.
+ *
+ * They stay mutually exclusive: two intensity surfaces at once is unreadable,
+ * and the honest comparison is one and then the other.
  */
-async function cycleDemand() {
-  const order = [null, 'venues', 'jobs'];
-  const next = order[(order.indexOf(state.demandMode) + 1) % order.length];
+async function toggleDemand() {
+  await setDemandRun(state.demandMode ? null : state.demandRun || 'venues');
+}
+
+async function setDemandRun(next) {
   const button = el('demand-btn');
 
   if (state.demandLayer) {
@@ -346,6 +353,11 @@ async function cycleDemand() {
     return;
   }
 
+  // Remembered, so turning the layer off and on again comes back to the run
+  // that was last being looked at rather than resetting to event-day.
+  state.demandRun = next;
+  syncDemandRuns(next);
+
   button.disabled = true;
   await loadDemand(next);
   const image = demandImage(next);
@@ -360,6 +372,7 @@ async function cycleDemand() {
     );
     state.demandMode = null;
     button.classList.remove('is-armed');
+    button.setAttribute('aria-pressed', 'false');
     el('demand-legend').hidden = true;
     return;
   }
@@ -379,11 +392,17 @@ async function cycleDemand() {
   el('demand-title').textContent = title;
   el('demand-note').textContent =
     `${note} ${doc.routed.toLocaleString()} simulated trips, ${image.cells} cells, busiest carries ${image.top}.`;
-  el('demand-switch').textContent =
-    next === 'venues' ? 'Press again for everyday demand.' : 'Press again to turn off.';
   button.classList.add('is-armed');
   button.setAttribute('aria-pressed', 'true');
   el('demand-legend').hidden = false;
+}
+
+function syncDemandRuns(active) {
+  document.querySelectorAll('#demand-runs .seg-btn').forEach((btn) => {
+    const on = btn.dataset.run === active;
+    btn.classList.toggle('is-on', on);
+    btn.setAttribute('aria-pressed', String(on));
+  });
 }
 
 /** The priority sites, on the map and in a ranked list. */
@@ -920,8 +939,19 @@ function armPick(role) {
     btn.classList.toggle('is-armed', btn.dataset.pick === state.pick);
   });
   map.getContainer().classList.toggle('map-picking', Boolean(state.pick));
+
+  // Arming used to announce itself with a coloured button, a crosshair, and a
+  // line of status text in the sidebar — none of which is where the eye is once
+  // someone has decided to click the map. The banner sits over the map and says
+  // what to do and how to stop.
+  const banner = el('pick-banner');
   if (state.pick) {
-    setStatus(`Click the map to set the ${state.pick === 'origin' ? 'start' : 'finish'}.`);
+    const what = state.pick === 'origin' ? 'start' : 'finish';
+    el('pick-banner-text').textContent = `Click the map to set your ${what}`;
+    banner.hidden = false;
+    setStatus(`Click the map to set the ${what}.`);
+  } else {
+    banner.hidden = true;
   }
 }
 
@@ -2669,7 +2699,10 @@ function init() {
     }
   });
 
-  document.querySelectorAll('.pick-btn').forEach((btn) =>
+  // Scoped to the picking pair: the layer toggles beside them share the class,
+  // and an unscoped listener ran armPick(undefined) for those too — which
+  // cancelled a pick in progress every time a layer was switched on.
+  document.querySelectorAll('.pick-btn[data-pick]').forEach((btn) =>
     btn.addEventListener('click', () => armPick(btn.dataset.pick)),
   );
 
@@ -2690,13 +2723,28 @@ function init() {
   );
 
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && !el('weights-body').hidden) setWeightsOpen(false);
+    if (event.key !== 'Escape') return;
+    if (!el('weights-body').hidden) setWeightsOpen(false);
+    // A mode you cannot get out of is worse than no mode at all.
+    if (state.pick) {
+      armPick(null);
+      setStatus('');
+    }
+  });
+
+  el('pick-cancel').addEventListener('click', () => {
+    armPick(null);
+    setStatus('');
   });
 
   el('walk-layer-btn').addEventListener('click', toggleWalkLayer);
   el('priority-btn').addEventListener('click', togglePriority);
   el('economy-btn').addEventListener('click', toggleEconomy);
-  el('demand-btn').addEventListener('click', cycleDemand);
+  el('demand-btn').addEventListener('click', toggleDemand);
+
+  document.querySelectorAll('#demand-runs .seg-btn').forEach((btn) =>
+    btn.addEventListener('click', () => setDemandRun(btn.dataset.run)),
+  );
   el('close-priority').addEventListener('click', togglePriority);
 
   el('basemap-btn').addEventListener('click', () => {

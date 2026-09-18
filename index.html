@@ -226,48 +226,67 @@
 
       <main class="map-wrap">
         <div id="map"></div>
+
+        <div class="pick-banner" id="pick-banner" hidden>
+          <span class="pick-banner-dot" aria-hidden="true"></span>
+          <span class="pick-banner-text" id="pick-banner-text" aria-live="polite"></span>
+          <button type="button" class="pick-banner-cancel" id="pick-cancel">Cancel</button>
+        </div>
+        <!-- Two kinds of control lived in one undifferentiated row: the first
+             pair puts the map into a click-to-place mode, the rest switch
+             layers on and off. Grouping them says which is which before
+             anything is pressed. -->
         <div class="map-tools">
-          <button type="button" class="pick-btn" data-pick="origin"><span class="btn-icon">📍</span><span class="btn-text">Set start</span></button>
-          <button type="button" class="pick-btn" data-pick="destination"><span class="btn-icon">🏁</span><span class="btn-text">Set finish</span></button>
-          <button type="button" class="pick-btn" id="basemap-btn" title="Switch basemap">
-            <span class="btn-icon">🗺</span><span class="btn-text">Streets</span>
-          </button>
-                                                <button
-            type="button"
-            class="pick-btn"
-            id="walk-layer-btn"
-            title="Show the walkability surface"
-            aria-pressed="false"
-          >
-            <span class="btn-icon">🚶</span><span class="btn-text">Walkability</span>
-          </button>
-          <button
-            type="button"
-            class="pick-btn"
-            id="economy-btn"
-            title="Jobs on the ground, from the business directory"
-            aria-pressed="false"
-          >
-            <span class="btn-icon">💼</span><span class="btn-text">Jobs</span>
-          </button>
-          <button
-            type="button"
-            class="pick-btn"
-            id="demand-btn"
-            title="Simulated foot traffic — press again to switch between event-day and everyday"
-            aria-pressed="false"
-          >
-            <span class="btn-icon">🔥</span><span class="btn-text">Demand</span>
-          </button>
-          <button
-            type="button"
-            class="pick-btn"
-            id="priority-btn"
-            title="Where to invest first: busiest and hardest to walk"
-            aria-pressed="false"
-          >
-            <span class="btn-icon">⚠️</span><span class="btn-text">Priority</span>
-          </button>
+          <div class="tool-group tool-trip" role="group" aria-label="Place the trip on the map">
+            <button type="button" class="pick-btn is-action" data-pick="origin">
+              <span class="btn-icon">📍</span><span class="btn-text">Set start</span>
+            </button>
+            <button type="button" class="pick-btn is-action" data-pick="destination">
+              <span class="btn-icon">🏁</span><span class="btn-text">Set finish</span>
+            </button>
+          </div>
+
+          <div class="tool-group" role="group" aria-label="Map layers">
+            <button type="button" class="pick-btn" id="basemap-btn" title="Switch basemap">
+              <span class="btn-icon">🗺</span><span class="btn-text">Streets</span>
+            </button>
+            <button
+              type="button"
+              class="pick-btn"
+              id="walk-layer-btn"
+              title="Show the walkability surface"
+              aria-pressed="false"
+            >
+              <span class="btn-icon">🚶</span><span class="btn-text">Walkability</span>
+            </button>
+            <button
+              type="button"
+              class="pick-btn"
+              id="economy-btn"
+              title="Jobs on the ground, from the business directory"
+              aria-pressed="false"
+            >
+              <span class="btn-icon">💼</span><span class="btn-text">Jobs</span>
+            </button>
+            <button
+              type="button"
+              class="pick-btn"
+              id="demand-btn"
+              title="Simulated foot traffic — choose the run once it is on"
+              aria-pressed="false"
+            >
+              <span class="btn-icon">🔥</span><span class="btn-text">Demand</span>
+            </button>
+            <button
+              type="button"
+              class="pick-btn"
+              id="priority-btn"
+              title="Where to invest first: busiest and hardest to walk"
+              aria-pressed="false"
+            >
+              <span class="btn-icon">⚠️</span><span class="btn-text">Priority</span>
+            </button>
+          </div>
         </div>
         <div class="map-scales">
           <div class="map-legend" id="walk-legend" hidden>
@@ -287,10 +306,17 @@
 
           <div class="map-legend" id="demand-legend" hidden>
             <strong id="demand-title">🔥 Foot traffic</strong>
+            <div class="seg" id="demand-runs" role="group" aria-label="Which simulation to show">
+              <button type="button" class="seg-btn is-on" data-run="venues" aria-pressed="true">
+                Event day
+              </button>
+              <button type="button" class="seg-btn" data-run="jobs" aria-pressed="false">
+                Everyday
+              </button>
+            </div>
             <div class="dem-ramp"><span></span><span></span><span></span><span></span><span></span></div>
             <div class="walk-ramp-labels"><span>fewer routes</span><span>more</span></div>
             <div class="walk-note" id="demand-note"></div>
-            <div class="walk-note" id="demand-switch"></div>
           </div>
 
           <div class="map-legend" id="priority-legend" hidden>
@@ -335,10 +361,6 @@
               </div>
               <p class="hint" id="score-mode-hint" style="margin: 8px 0 0"></p>
             </div>
-          </div>
-        </div>
-            <div class="walk-note">
-              Rice GIS multidimensional index · unshaded areas have no data
           </div>
         </div>
       </main>
