@@ -394,7 +394,8 @@ async function setDemandRun(next) {
   const [title, note] = DEMAND_LABEL[next];
   el('demand-title').textContent = title;
   el('demand-note').textContent =
-    `${note} ${doc.routed.toLocaleString()} simulated trips, ${image.cells} cells, busiest carries ${image.top}.`;
+    `${note} Darker means more of the ${doc.routed.toLocaleString()} simulated walking trips use that ` +
+    `street: the busiest 60 m square is crossed by ${image.top} of them.`;
   button.classList.add('is-armed');
   button.setAttribute('aria-pressed', 'true');
   el('demand-legend').hidden = false;
@@ -447,7 +448,7 @@ async function togglePriority() {
     })
       .bindTooltip(
         `<b>#${i + 1} ${escapeHtml(site.name || 'site')}</b><br>` +
-          `${site.trips} of ${meta.routed} simulated trips · walkability cost ${site.cost}`,
+          `${site.trips} of ${meta.routed} simulated walks cross here · difficulty ${site.cost}/10`,
         { direction: 'top' },
       )
       .on('click', () => focusPrioritySite(i))
@@ -472,7 +473,7 @@ function renderPriorityList(sites, meta) {
   el('priority-summary').innerHTML =
     `Busiest <em>and</em> hardest to walk. ${sites[0].name || 'The top site'} carries ` +
     `<b>${top[0].share}%</b> of ${meta.routed.toLocaleString()} simulated walking trips ` +
-    `to the venues, on ground the walkability index scores ${sites[0].cost} out of 10.`;
+    `to the venues — on ground the walkability index rates <b>${sites[0].cost} out of 10 for difficulty</b>, where 10 is the hardest to walk.`;
 
   el('priority-list').innerHTML = top
     .map(
@@ -481,7 +482,7 @@ function renderPriorityList(sites, meta) {
         <span class="priority-rank">${site.rank}</span>
         <span>
           <span class="priority-name">${escapeHtml(site.name)}</span>
-          <span class="priority-meta">${site.trips} trips (${site.share}%) · cost ${site.cost}/10</span>
+          <span class="priority-meta">${site.trips} of ${meta.routed.toLocaleString()} simulated walks cross here · difficulty ${site.cost}/10</span>
         </span>
         <span class="priority-score">${site.priority.toFixed(2)}</span>
       </li>`,
@@ -1680,8 +1681,10 @@ function select(index, { focus = true } = {}) {
 
 function bar(label, value) {
   const pct = Math.round(value * 100);
+  // Titled, because a bare "52%" begs the question "of what?" and the answer
+  // is the same for all three: of the distance you travel.
   return `
-    <div class="bar">
+    <div class="bar" title="${pct}% of this route">
       <span>${label}</span>
       <span class="bar-track"><span class="bar-fill" style="width:${pct}%"></span></span>
       <span class="bar-val">${pct}%</span>
@@ -1759,7 +1762,7 @@ function renderRoutes() {
           <div class="bars">
             ${bar(route.transit ? 'Green on foot' : 'Green', m.greenShare)}
             ${bar(route.transit ? 'Shade on foot' : 'Shade', m.shadeShare)}
-            ${bar('Calm', 1 - m.bigRoadShare)}
+            ${bar('Away from traffic', 1 - m.bigRoadShare)}
           </div>
         </div>`;
     })

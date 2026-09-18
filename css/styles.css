@@ -2279,3 +2279,27 @@ input[type="text"],
 @media (prefers-reduced-motion: reduce) {
   .scn-bar i { transition: none; }
 }
+
+/* Each headline figure carries its own definition, because "burden" and
+   "trip-passes" are exact and mean nothing to someone reading them cold. */
+.scn-cap em {
+  display: block;
+  font-style: normal;
+  font-size: 9.5px;
+  line-height: 1.35;
+  color: var(--muted);
+  opacity: 0.85;
+  margin-top: 3px;
+}
+
+.scn-intro {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+  margin: -4px 0 12px;
+}
+
+.legend-note {
+  margin: -4px 0 12px;
+  line-height: 1.5;
+}

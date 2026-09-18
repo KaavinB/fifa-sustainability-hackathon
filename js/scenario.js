@@ -76,11 +76,17 @@ export function renderScenario(result, routed) {
     <div class="scn-figures">
       <div class="scn-fig">
         <span class="scn-big">${pct(result.sharePart)}</span>
-        <span class="scn-cap">of the city's mapped walking burden removed</span>
+        <span class="scn-cap">
+          less walking difficulty city-wide<em>adding up every ranked corner, counting each one by how
+          many people cross it</em>
+        </span>
       </div>
       <div class="scn-fig">
         <span class="scn-big">${result.passes.toLocaleString()}</span>
-        <span class="scn-cap">trip-passes through the treated corridors, of ${routed.toLocaleString()} simulated trips</span>
+        <span class="scn-cap">
+          crossings improved<em>times one of the ${routed.toLocaleString()} simulated walks passes a fixed
+          corner — one walk can cross several, so this runs past ${routed.toLocaleString()}</em>
+        </span>
       </div>
     </div>
 
@@ -95,12 +101,16 @@ export function renderScenario(result, routed) {
         <span class="scn-bar"><i class="is-after" style="width:${(remainingShare * 100).toFixed(1)}%"></i></span>
         <span class="scn-bar-val">${(result.totalBurden - result.removed).toFixed(1)}</span>
       </div>
-      <p class="scn-axis">Total priority burden across all ${result.treated.length + result.untreated.length} ranked sites</p>
+      <p class="scn-axis">
+        Total walking difficulty across all ${result.treated.length + result.untreated.length} ranked
+        corners. The scale has no unit — only the drop matters.
+      </p>
     </div>
 
     <p class="scn-note">
-      Walkability cost on the treated ground falls from
-      <b>${result.costBefore.toFixed(2)}</b> to <b>${result.costAfter.toFixed(2)}</b> out of 10.
+      The ground being fixed goes from
+      <b>${result.costBefore.toFixed(2)}</b> to <b>${result.costAfter.toFixed(2)}</b> out of 10 for
+      walking difficulty, where 10 is the hardest.
       ${
         result.nextWorst.treated
           ? `Even after the work, <b>${result.nextWorst.name}</b> is still the worst corner in the ` +
