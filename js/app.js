@@ -25,6 +25,7 @@ import { loadWalkability, walkabilityMeta, overlayImage } from './walkability.js
 import { loadPriority, priorityMeta, radiusFor, colorFor, describeSite, renderScatter } from './priority.js';
 import { loadEconomy, economyMeta, overlayImage as economyImage } from './economy.js';
 import { loadDemand, demandMeta, overlayImage as demandImage } from './demand.js';
+import { runScenario, renderScenario } from './scenario.js';
 import { renderProfile, seriesFor, sampleAt, describeSample } from './profile.js';
 import {
   planTransit,
@@ -81,6 +82,8 @@ const state = {
   demandLayer: null,
   demandMode: null,
   demandRun: 'venues',
+  scenario: { count: 5, effect: 30 },
+  priorityMarkers: [],
   waterLayer: null,
   showWater: true,
   busy: false,
@@ -433,9 +436,9 @@ async function togglePriority() {
   const top = sites[0].priority;
   state.priorityLayer = L.layerGroup().addTo(map);
 
-  sites.forEach((site, i) => {
+  state.priorityMarkers = sites.map((site, i) => {
     const { fill, stroke } = colorFor(site.priority, top);
-    L.circleMarker(site.coord, {
+    const marker = L.circleMarker(site.coord, {
       radius: radiusFor(site.priority, top),
       color: stroke,
       weight: 1.5,
@@ -449,6 +452,10 @@ async function togglePriority() {
       )
       .on('click', () => focusPrioritySite(i))
       .addTo(state.priorityLayer);
+    // Remembered, so a site dropping out of the treated set goes back to the
+    // colour the ramp gave it rather than to whatever it was last styled with.
+    marker.baseStyle = { color: stroke, fillColor: fill };
+    return marker;
   });
 
   button.classList.add('is-armed');
@@ -493,6 +500,35 @@ function renderPriorityList(sites, meta) {
     `<span class="sc-key"><i class="sc-dot-bg"></i>all ${meta.cells?.length || 0} scored cells</span>` +
     '<span class="sc-key"><i class="sc-dash"></i>cut-off</span>';
   el('priority-method').textContent = meta.method;
+  renderScenarioPanel();
+}
+
+/**
+ * The what-if, recomputed from numbers already in memory. No request, no
+ * re-routing — which is what lets the sliders answer as fast as they move.
+ */
+function renderScenarioPanel() {
+  const sites = sitesCache;
+  if (!sites?.length) return;
+  const meta = priorityMeta();
+  const { count, effect } = state.scenario;
+
+  const result = runScenario(sites, { count, reduction: effect / 100 });
+
+  el('scn-count-out').textContent = String(count);
+  el('scn-effect-out').textContent = `${effect}%`;
+  el('scenario-out').innerHTML = renderScenario(result, meta.routed);
+
+  // Treated sites get a ring on the map, so the budget is legible as a place
+  // and not only as a number.
+  state.priorityMarkers.forEach((marker, i) => {
+    const treated = i < count;
+    marker.setStyle({
+      color: treated ? '#1f7a4d' : marker.baseStyle.color,
+      weight: treated ? 3 : 1.5,
+      fillOpacity: treated ? 0.5 : 1,
+    });
+  });
 }
 
 function focusPrioritySite(index) {
@@ -2746,6 +2782,23 @@ function init() {
     btn.addEventListener('click', () => setDemandRun(btn.dataset.run)),
   );
   el('close-priority').addEventListener('click', togglePriority);
+
+  el('scn-count').addEventListener('input', (event) => {
+    state.scenario.count = Number(event.target.value);
+    renderScenarioPanel();
+  });
+
+  el('scn-effect').addEventListener('input', (event) => {
+    state.scenario.effect = Number(event.target.value);
+    renderScenarioPanel();
+  });
+
+  el('scenario-reset').addEventListener('click', () => {
+    state.scenario = { count: 5, effect: 30 };
+    el('scn-count').value = '5';
+    el('scn-effect').value = '30';
+    renderScenarioPanel();
+  });
 
   el('basemap-btn').addEventListener('click', () => {
     const index = BASEMAP_ORDER.indexOf(state.basemap);

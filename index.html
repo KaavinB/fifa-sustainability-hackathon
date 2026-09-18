@@ -176,6 +176,31 @@
             <button id="close-priority" class="link-btn" type="button">hide</button>
           </h2>
           <p class="hint" id="priority-summary"></p>
+
+          <!-- The lever. The ranking says where the problem is; this says what
+               fixing it buys, which is the question a city actually has. -->
+          <div class="scenario" id="scenario">
+            <div class="scn-head">
+              <strong>What if the city fixed them?</strong>
+              <button type="button" class="link-btn" id="scenario-reset">reset</button>
+            </div>
+
+            <label class="scn-control" for="scn-count">
+              <span class="scn-label">Fix the top <b id="scn-count-out">5</b> sites</span>
+              <input type="range" id="scn-count" min="1" max="20" step="1" value="5" />
+            </label>
+
+            <label class="scn-control" for="scn-effect">
+              <span class="scn-label">
+                Each fix cuts walkability cost by <b id="scn-effect-out">30%</b>
+                <em>assumption — shade, crossings, sidewalk</em>
+              </span>
+              <input type="range" id="scn-effect" min="10" max="50" step="5" value="30" />
+            </label>
+
+            <div id="scenario-out"></div>
+          </div>
+
           <div id="priority-chart"></div>
           <div class="sc-legend" id="priority-chart-legend"></div>
           <ol id="priority-list" class="priority-list"></ol>

@@ -2150,3 +2150,132 @@ input[type="text"],
 .dem-ramp span:nth-child(3) { background: rgb(234, 88, 12); }
 .dem-ramp span:nth-child(4) { background: rgb(180, 66, 15); }
 .dem-ramp span:nth-child(5) { background: rgb(124, 45, 18); }
+
+/* ------------------------------------------------------- scenario ------- */
+
+/* The what-if built on the priority ranking. It lives inside the priority
+   card because it is the second half of the same sentence: here is where the
+   problem is, here is what fixing it buys. */
+.scenario {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin: 12px 0 14px;
+  background: var(--raised, #f4f7f4);
+}
+
+.scn-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.scn-head strong { font-size: 13.5px; }
+
+.scn-control { display: block; margin-bottom: 12px; }
+
+.scn-label {
+  display: block;
+  font-size: 12.5px;
+  margin-bottom: 5px;
+}
+
+.scn-label b { color: var(--accent); }
+
+.scn-label em {
+  display: block;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 1px;
+}
+
+.scn-control input[type="range"] { width: 100%; accent-color: var(--accent); }
+
+.scn-figures {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 12px 0 14px;
+}
+
+.scn-fig {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 11px;
+}
+
+.scn-big {
+  display: block;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.05;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.scn-cap {
+  display: block;
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.scn-bars { margin-bottom: 10px; }
+
+.scn-bar-row {
+  display: grid;
+  grid-template-columns: 42px 1fr 40px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.scn-bar-label { font-size: 11.5px; color: var(--muted); }
+
+.scn-bar {
+  display: block;
+  height: 14px;
+  border-radius: 3px;
+  background: rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+}
+
+.scn-bar i {
+  display: block;
+  height: 100%;
+  background: #94a3b8;
+  border-radius: 3px;
+  transition: width 0.18s ease;
+}
+
+.scn-bar i.is-after { background: var(--accent); }
+
+.scn-bar-val {
+  font-size: 11.5px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.scn-axis {
+  font-size: 10.5px;
+  color: var(--muted);
+  margin: 4px 0 0;
+}
+
+.scn-note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  margin: 0;
+}
+
+.scn-note b { color: var(--ink); }
+
+@media (prefers-reduced-motion: reduce) {
+  .scn-bar i { transition: none; }
+}
